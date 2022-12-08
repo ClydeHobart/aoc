@@ -4,6 +4,7 @@ use {
     std::{
         fs::File,
         io::{Error, ErrorKind, Result as IoResult},
+        ops::{Deref, DerefMut},
         str::{from_utf8, Utf8Error},
     },
 };
@@ -82,4 +83,30 @@ pub unsafe fn open_utf8_file<F: FnOnce(&str)>(file_path: &str, f: F) -> IoResult
     f(utf8_str);
 
     Ok(())
+}
+
+pub struct TokenStream<'i, 't, I: Iterator<Item = &'t str>>(&'i mut I);
+
+impl<'i, 't, I: Iterator<Item = &'t str>> TokenStream<'i, 't, I> {
+    pub fn new(iter: &'i mut I) -> Self {
+        Self(iter)
+    }
+}
+
+impl<'i, 't, I: Iterator<Item = &'t str>> Deref for TokenStream<'i, 't, I> {
+    type Target = I;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl<'i, 't, I: Iterator<Item = &'t str>> DerefMut for TokenStream<'i, 't, I> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
+    }
+}
+
+pub fn unreachable_any<T, U>(_: T) -> U {
+    unreachable!();
 }
