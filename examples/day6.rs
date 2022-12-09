@@ -9,8 +9,6 @@ struct ProcessState {
     present_total: u8,
 }
 
-const A_OFFSET: u8 = b'a' as u8;
-
 #[derive(Debug)]
 enum ProcessCharError {
     CharIsNotAsciiLowercase(char),
@@ -35,7 +33,7 @@ impl ProcessState {
 
         self.processed += 1_usize;
 
-        let new_data_byte: u8 = new_char as u8 - A_OFFSET;
+        let new_data_byte: u8 = new_char as u8 - LOWERCASE_A_OFFSET;
 
         self.queue.push_back(new_data_byte);
 
@@ -53,7 +51,7 @@ impl ProcessState {
 
             if *old_char_present == 0_u8 {
                 return Err(Error::PoppingCharWithZeroCount(
-                    (old_data_byte + A_OFFSET) as char,
+                    (old_data_byte + LOWERCASE_A_OFFSET) as char,
                 ));
             }
 
@@ -62,7 +60,7 @@ impl ProcessState {
             if *old_char_present == 0_u8 {
                 if self.present_total == 0_u8 {
                     return Err(Error::DecrementingCharCountToZeroWithZeroPresentTotal(
-                        (old_data_byte + A_OFFSET) as char,
+                        (old_data_byte + LOWERCASE_A_OFFSET) as char,
                     ));
                 }
 

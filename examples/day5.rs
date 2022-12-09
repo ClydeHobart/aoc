@@ -11,23 +11,56 @@ use {
     },
 };
 
+/// A cell of the cargo bay drawing, as described by https://adventofcode.com/2022/day/5
 enum DrawingCell {
+    /// An empty space in the drawing present above any columns that are not the tallest,
+    /// represented by the regex pattern `   `
     Empty,
+
+    /// A cargo crate marked with an uppercase capital letter, represented by the regex pattern
+    /// `\[[A-Z]\]`
     Crate(u8),
+
+    /// A column index at the foot of the drawing, represented by the regex pattern ` [1-9] `
+    ///
+    /// The index is expected to be a single digit representing the 1-based array index of the
+    /// column. It is stored with the offset removed, such that `b'1'` is stored as `1_u8`
     ColumnIndex(u8),
 }
 
+/// An error encountered while parsing a `DrawingCell` from a byte slice
 #[derive(Debug)]
 enum DrawingCellParseError {
+    /// The byte slice is not a valid UTF-8-encoded string slice
     NotUtf8(Utf8Error),
+
+    /// The string slice is not valid ASCII
     NotAscii,
+
+    /// The string slice does not have length 3
+    ///
+    /// The `usize` payload is the actual length of the string slice
     InvalidLength(usize),
+
+    /// The string slice was not a valid representation of a `DrawingCell`
+    ///
+    /// See the comments on its variants for the accepted values. The payload is the 3 bytes of the
+    /// string slice, which can be assumed to be valid ASCII text.
     InvalidPattern([u8; 3_usize]),
 }
 
 impl TryFrom<&[u8]> for DrawingCell {
     type Error = DrawingCellParseError;
 
+    /// Tries to parse a byte slice into a `DrawingCell`
+    ///
+    /// # Arguments
+    ///
+    /// * `drawing_cell_bytes` - The byte slice to attempt to parse into a `DrawingCell`
+    ///
+    /// # Errors
+    ///
+    /// If an error is encountered, an `Err`-wrapped `DrawingCellParseError` is returned.
     fn try_from(drawing_cell_bytes: &[u8]) -> Result<Self, Self::Error> {
         use DrawingCellParseError as Error;
 
@@ -51,8 +84,6 @@ impl TryFrom<&[u8]> for DrawingCell {
                     Ok(DrawingCell::Crate(middle_byte))
                 }
                 [b' ', _, b' '] if middle_char.is_ascii_digit() => {
-                    const ZERO_OFFSET: u8 = b'0' as u8;
-
                     Ok(DrawingCell::ColumnIndex(middle_byte - ZERO_OFFSET))
                 }
                 _ => Err(Error::InvalidPattern(drawing_cell_bytes_copy)),
@@ -214,10 +245,8 @@ impl TryFrom<&str> for ProcedureStep {
             _ => Err(Error::InvalidMoveToken),
         }?;
 
-        let count: usize = match iter.next() {
-            None => Err(Error::NoCountToken),
-            Some(count_str) => usize::from_str(count_str).map_err(Error::FailedToParseCount),
-        }?;
+        let count: usize = usize::from_str(iter.next().ok_or(Error::NoCountToken)?)
+            .map_err(Error::FailedToParseCount)?;
 
         match iter.next() {
             None => Err(Error::NoFromTextToken),
@@ -225,10 +254,8 @@ impl TryFrom<&str> for ProcedureStep {
             _ => Err(Error::InvalidFromTextToken),
         }?;
 
-        let from: u8 = match iter.next() {
-            None => Err(Error::NoFromToken),
-            Some(from_str) => u8::from_str(from_str).map_err(Error::FailedToParseFrom),
-        }?;
+        let from: u8 = u8::from_str(iter.next().ok_or(Error::NoFromToken)?)
+            .map_err(Error::FailedToParseFrom)?;
 
         match iter.next() {
             None => Err(Error::NoToTextToken),
@@ -236,10 +263,8 @@ impl TryFrom<&str> for ProcedureStep {
             _ => Err(Error::InvalidToTextToken),
         }?;
 
-        let to: u8 = match iter.next() {
-            None => Err(Error::NoToToken),
-            Some(to_str) => u8::from_str(to_str).map_err(Error::FailedToParseTo),
-        }?;
+        let to: u8 =
+            u8::from_str(iter.next().ok_or(Error::NoToToken)?).map_err(Error::FailedToParseTo)?;
 
         match iter.next() {
             Some(_) => Err(Error::ExtraTokenFound),

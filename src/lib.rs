@@ -110,3 +110,7 @@ impl<'i, 't, I: Iterator<Item = &'t str>> DerefMut for TokenStream<'i, 't, I> {
 pub fn unreachable_any<T, U>(_: T) -> U {
     unreachable!();
 }
+
+pub const LOWERCASE_A_OFFSET: u8 = b'a';
+pub const UPPERCASE_A_OFFSET: u8 = b'A';
+pub const ZERO_OFFSET: u8 = b'0';
