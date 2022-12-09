@@ -1,5 +1,5 @@
 use {
-    self::{cell_iter::*, direction::*, neighbor_heights::*},
+    self::{cell_iter::*, direction::*},
     aoc_2022::*,
     clap::Parser,
     glam::IVec2,
@@ -8,7 +8,6 @@ use {
         fmt::{Debug, DebugList, Formatter, Result as FmtResult},
         iter::Peekable,
         mem::transmute,
-        ops::{Index, IndexMut},
         str::Split,
     },
     strum::{EnumCount, EnumIter, IntoEnumIterator},
@@ -29,23 +28,11 @@ mod direction {
                 $( $variant, )*
             }
 
-            const OFFSETS: [u32; $direction::COUNT] = [
-                $( $direction::$variant.offset_internal(), )*
-            ];
-
-            const MASKS: [u16; $direction::COUNT] = [
-                $( $direction::$variant.mask_internal(), )*
-            ];
-
             const VECS: [IVec2; $direction::COUNT] = [
                 $( $direction::$variant.vec_internal(), )*
             ];
         };
     }
-
-    pub const BITS: u32 = u16::BITS / Direction::COUNT as u32;
-    // pub const MASK: u16 = (1_u16 << BITS) - 1_u16;
-    pub const MIN_INVALID: u8 = 10_u8;
 
     define_direction! {
         #[derive(Copy, Clone, Debug, EnumCount, EnumIter)]
@@ -64,16 +51,6 @@ mod direction {
 
     impl Direction {
         #[inline]
-        pub const fn offset(self) -> u32 {
-            OFFSETS[self as usize]
-        }
-
-        #[inline]
-        pub const fn mask(self) -> u16 {
-            MASKS[self as usize]
-        }
-
-        #[inline]
         pub const fn vec(self) -> IVec2 {
             VECS[self as usize]
         }
@@ -86,22 +63,6 @@ mod direction {
         #[inline]
         pub const fn next(self) -> Self {
             Self::from_usize(self as usize + 1_usize)
-        }
-
-        const fn offset_internal(self) -> u32 {
-            self as u32 * BITS
-        }
-
-        const fn mask_internal(self) -> u16 {
-            let start: u32 = self.offset();
-            let end: u32 = start + BITS;
-
-            match 1_u16.checked_shl(end) {
-                Some(shift_result) => shift_result,
-                None => 0_u16,
-            }
-            .wrapping_sub(1_u16)
-                & !((1_u16 << start) - 1_u16)
         }
 
         const fn vec_internal(self) -> IVec2 {
@@ -137,19 +98,19 @@ mod cell_iter {
     }
 
     impl CellIter {
-        pub(super) fn corner(height_grid: &HeightGrid, dir: Direction) -> Self {
+        pub(super) fn corner<T>(grid: &Grid<T>, dir: Direction) -> Self {
             let dir_vec: IVec2 = dir.vec();
-            let curr: IVec2 = (-height_grid.dimensions * (dir_vec + dir_vec.perp()))
-                .clamp(IVec2::ZERO, height_grid.max());
+            let curr: IVec2 = (-grid.dimensions * (dir_vec + dir_vec.perp()))
+                .clamp(IVec2::ZERO, grid.max_dimensions());
 
-            Self::until(height_grid, dir, curr)
+            Self::until(grid, dir, curr)
         }
 
         #[inline(always)]
-        pub(super) fn until(height_grid: &HeightGrid, dir: Direction, curr: IVec2) -> Self {
+        pub(super) fn until<T>(grid: &Grid<T>, dir: Direction, curr: IVec2) -> Self {
             let dir_vec: IVec2 = dir.vec();
-            let end: IVec2 = (curr + dir_vec * height_grid.dimensions)
-                .clamp(IVec2::ZERO, height_grid.max())
+            let end: IVec2 = (curr + dir_vec * grid.dimensions)
+                .clamp(IVec2::ZERO, grid.max_dimensions())
                 + dir_vec;
 
             Self { dir, curr, end }
@@ -178,13 +139,13 @@ mod cell_iter {
 
         #[test]
         fn test_corner() {
-            let height_grid: HeightGrid = HeightGrid::new(5_usize);
+            let grid: Grid<()> = Grid::empty(SideLen(5_usize).into());
 
             assert_eq!(
                 Direction::iter()
-                    .map(|dir: Direction| -> CellIter { CellIter::corner(&height_grid, dir) })
+                    .map(|dir: Direction| -> CellIter { CellIter::corner(&grid, dir) })
                     .flatten()
-                    .map(|pos: IVec2| -> usize { height_grid.index_from_pos(pos) })
+                    .map(|pos: IVec2| -> usize { grid.index_from_pos(pos) })
                     .collect::<Vec<usize>>(),
                 vec![
                     20, 15, 10, 5, 0, // North
@@ -197,133 +158,54 @@ mod cell_iter {
     }
 }
 
-mod neighbor_heights {
-    use super::*;
+struct SideLen(usize);
 
-    #[derive(Clone, Copy)]
-    pub struct NeighborHeights(u16);
-
-    pub const ZERO: NeighborHeights = NeighborHeights(0_u16);
-
-    impl NeighborHeights {
-        pub const fn new() -> Self {
-            Self(u16::MAX)
-        }
-
-        #[inline]
-        pub fn get_neighbor(self, dir: Direction) -> u8 {
-            ((self.0 & dir.mask()) >> dir.offset()) as u8
-        }
-
-        pub fn set_neighbor(&mut self, dir: Direction, neighbor_height: u8) {
-            let neighbor_height: u16 = (neighbor_height as u16) << dir.offset();
-            let mask: u16 = dir.mask();
-
-            self.0 = (self.0 & !mask) | neighbor_height;
-        }
-    }
-
-    impl Debug for NeighborHeights {
-        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-            f.write_str("NeighborHeights")?;
-            f.debug_list()
-                .entries(
-                    Direction::iter()
-                        .map(|dir: Direction| -> (Direction, u8) { (dir, self.get_neighbor(dir)) }),
-                )
-                .finish()
-        }
-    }
-
-    impl Default for NeighborHeights {
-        fn default() -> Self {
-            Self::new()
-        }
+impl From<SideLen> for IVec2 {
+    fn from(side_len: SideLen) -> Self {
+        IVec2::new(side_len.0 as i32, side_len.0 as i32)
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-#[repr(align(4))]
-struct HeightCell {
-    height: u8,
-    min_neighbor: u8,
-    neighbor_heights: NeighborHeights,
-}
-
-const ZERO: HeightCell = HeightCell {
-    height: 0_u8,
-    min_neighbor: 0_u8,
-    neighbor_heights: neighbor_heights::ZERO,
-};
-
-impl HeightCell {
-    const fn new(height: u8) -> Self {
-        Self {
-            height,
-            min_neighbor: u8::MAX,
-            neighbor_heights: NeighborHeights::new(),
-        }
-    }
-
-    #[inline(always)]
-    pub fn get_neighbor(self, dir: Direction) -> u8 {
-        self.neighbor_heights.get_neighbor(dir)
-    }
-
-    pub fn set_neighbor(&mut self, dir: Direction, neighbor_height: u8) {
-        self.min_neighbor = self.min_neighbor.min(neighbor_height);
-        self.neighbor_heights.set_neighbor(dir, neighbor_height);
-    }
-}
-
-struct HeightGrid {
-    cells: Vec<HeightCell>,
+struct Grid<T> {
+    cells: Vec<T>,
 
     /// Should only contain unsigned values, but is signed for ease of use for iterating
     dimensions: IVec2,
 }
 
-#[allow(dead_code)]
-#[derive(Debug)]
-enum HeightGridComputeError {
-    NeighborCellHadInvalidHeight {
-        vec: IVec2,
-        cell: HeightCell,
-        dir: Direction,
-    },
-}
-
-impl HeightGrid {
-    fn new(side_len: usize) -> Self {
+impl<T> Grid<T> {
+    #[cfg(test)]
+    pub fn empty(dimensions: IVec2) -> Self {
         Self {
-            cells: Vec::with_capacity(side_len * side_len),
-            dimensions: IVec2::new(side_len as i32, side_len as i32),
+            cells: Vec::new(),
+            dimensions,
+        }
+    }
+
+    pub fn allocate(dimensions: IVec2) -> Self {
+        Self {
+            cells: Vec::with_capacity((dimensions.x * dimensions.y) as usize),
+            dimensions,
         }
     }
 
     #[inline]
-    fn is_in_grid(&self, pos: IVec2) -> bool {
+    pub fn contains(&self, pos: IVec2) -> bool {
         pos.cmpge(IVec2::ZERO).all() && pos.cmplt(self.dimensions).all()
     }
 
-    fn is_border(&self, pos: IVec2) -> bool {
-        self.is_in_grid(pos) && (pos.cmpeq(IVec2::ZERO).any() || pos.cmpeq(self.max()).any())
+    pub fn is_border(&self, pos: IVec2) -> bool {
+        self.contains(pos)
+            && (pos.cmpeq(IVec2::ZERO).any() || pos.cmpeq(self.max_dimensions()).any())
     }
 
     #[inline]
-    fn pos_from_index(&self, index: usize) -> IVec2 {
-        let x: usize = self.dimensions.x as usize;
-
-        IVec2::new((index % x) as i32, (index / x) as i32)
-    }
-
-    #[inline]
-    fn index_from_pos(&self, pos: IVec2) -> usize {
+    pub fn index_from_pos(&self, pos: IVec2) -> usize {
         pos.y as usize * self.dimensions.x as usize + pos.x as usize
     }
 
-    fn try_index_from_pos(&self, pos: IVec2) -> Option<usize> {
-        if self.is_in_grid(pos) {
+    pub fn try_index_from_pos(&self, pos: IVec2) -> Option<usize> {
+        if self.contains(pos) {
             Some(self.index_from_pos(pos))
         } else {
             None
@@ -331,42 +213,24 @@ impl HeightGrid {
     }
 
     #[inline(always)]
-    fn max(&self) -> IVec2 {
+    fn max_dimensions(&self) -> IVec2 {
         self.dimensions - IVec2::ONE
     }
 
-    fn compute_min_neighbors(&mut self) -> Result<(), HeightGridComputeError> {
-        for dir in Direction::iter() {
-            let cell_dir: Direction = dir.next();
-            let neighbor_dir: Direction = cell_dir.next();
-            let neighbor_vec: IVec2 = neighbor_dir.vec();
+    pub fn get(&self, pos: IVec2) -> Option<&T> {
+        self.try_index_from_pos(pos)
+            .map(|index: usize| &self.cells[index])
+    }
 
-            for row_iter in CellIter::corner(self, dir) {
-                for cell_iter in CellIter::until(self, cell_dir, row_iter) {
-                    let neighbor: HeightCell = self[cell_iter + neighbor_vec];
-                    let neighbor_neighbor_height: u8 = neighbor.get_neighbor(neighbor_dir);
-
-                    if neighbor_neighbor_height >= MIN_INVALID {
-                        return Err(HeightGridComputeError::NeighborCellHadInvalidHeight {
-                            vec: cell_iter + neighbor_vec,
-                            cell: neighbor,
-                            dir: neighbor_dir,
-                        });
-                    }
-
-                    self[cell_iter]
-                        .set_neighbor(neighbor_dir, neighbor.height.max(neighbor_neighbor_height));
-                }
-            }
-        }
-
-        Ok(())
+    pub fn get_mut(&mut self, pos: IVec2) -> Option<&mut T> {
+        self.try_index_from_pos(pos)
+            .map(|index: usize| &mut self.cells[index])
     }
 }
 
-impl Debug for HeightGrid {
+impl<T: Debug> Debug for Grid<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        f.write_str("HeightGrid")?;
+        f.write_str("Grid")?;
         let mut y_list: DebugList = f.debug_list();
 
         for y in 0_i32..self.dimensions.y {
@@ -379,103 +243,217 @@ impl Debug for HeightGrid {
     }
 }
 
-impl Index<IVec2> for HeightGrid {
-    type Output = HeightCell;
+impl<T: Default> Grid<T> {
+    fn default(dimensions: IVec2) -> Self {
+        let capacity: usize = (dimensions.x * dimensions.y) as usize;
+        let mut cells: Vec<T> = Vec::with_capacity(capacity);
 
-    fn index(&self, pos: IVec2) -> &Self::Output {
-        match self.try_index_from_pos(pos) {
-            Some(index) => &self.cells[index],
-            None => &ZERO,
-        }
-    }
-}
+        cells.resize_with(capacity, T::default);
 
-impl IndexMut<IVec2> for HeightGrid {
-    fn index_mut(&mut self, pos: IVec2) -> &mut Self::Output {
-        match self.try_index_from_pos(pos) {
-            Some(index) => &mut self.cells[index],
-            None => panic!(
-                "`HeightGrid::index_mut` called on grid with dimensions {:?} for position {:?}",
-                self.dimensions, pos
-            ),
-        }
+        Self { cells, dimensions }
     }
 }
 
 #[allow(dead_code)]
 #[derive(Debug)]
-enum HeightGridParseError<'s> {
+enum GridParseError<'s, E> {
     NoInitialToken,
     IsNotAscii(&'s str),
     InvalidLength { line: &'s str, expected_len: usize },
-    IsNotAsciiDigit(char),
-    ComputationFailed(HeightGridComputeError),
+    CellParseError(E),
 }
 
-impl<'s> TryFrom<&'s str> for HeightGrid {
-    type Error = HeightGridParseError<'s>;
+impl<'s, E, T: TryFrom<char, Error = E>> TryFrom<&'s str> for Grid<T> {
+    type Error = GridParseError<'s, E>;
 
-    fn try_from(height_grid_str: &'s str) -> Result<Self, Self::Error> {
-        use HeightGridParseError as Error;
+    fn try_from(grid_str: &'s str) -> Result<Self, Self::Error> {
+        use GridParseError as Error;
 
-        let mut height_grid_line_iter: Peekable<Split<char>> =
-            height_grid_str.split('\n').peekable();
+        let mut grid_line_iter: Peekable<Split<char>> = grid_str.split('\n').peekable();
 
-        let side_len: usize = height_grid_line_iter
-            .peek()
-            .ok_or(Error::NoInitialToken)?
-            .len();
+        let side_len: usize = grid_line_iter.peek().ok_or(Error::NoInitialToken)?.len();
 
-        let mut height_grid: HeightGrid = HeightGrid::new(side_len);
+        let mut grid: Grid<T> = Grid::allocate(SideLen(side_len).into());
         let mut lines: usize = 0_usize;
 
-        for height_grid_line_str in height_grid_line_iter {
-            if !height_grid_line_str.is_ascii() {
-                return Err(Error::IsNotAscii(height_grid_line_str));
+        for grid_line_str in grid_line_iter {
+            if !grid_line_str.is_ascii() {
+                return Err(Error::IsNotAscii(grid_line_str));
             }
 
-            if height_grid_line_str.len() != side_len {
+            if grid_line_str.len() != side_len {
                 return Err(Error::InvalidLength {
-                    line: height_grid_line_str,
+                    line: grid_line_str,
                     expected_len: side_len,
                 });
             }
 
-            for height_cell_char in height_grid_line_str.chars() {
-                if !height_cell_char.is_ascii_digit() {
-                    return Err(Error::IsNotAsciiDigit(height_cell_char));
-                }
-
-                height_grid
-                    .cells
-                    .push(HeightCell::new(height_cell_char as u8 - ZERO_OFFSET));
+            for cell_char in grid_line_str.chars() {
+                grid.cells
+                    .push(cell_char.try_into().map_err(Error::CellParseError)?);
             }
 
             lines += 1_usize;
         }
 
         if lines != side_len {
-            height_grid.dimensions.y = lines as i32;
+            grid.dimensions.y = lines as i32;
         }
 
-        height_grid
-            .compute_min_neighbors()
-            .map_err(Error::ComputationFailed)?;
-
-        Ok(height_grid)
+        Ok(grid)
     }
 }
 
-fn count_visible_cells(height_grid: &HeightGrid) -> usize {
-    height_grid
-        .cells
-        .iter()
-        .enumerate()
-        .filter(|&(index, &height_cell): &(usize, &HeightCell)| -> bool {
-            height_grid.is_border(height_grid.pos_from_index(index))
-                || height_cell.height > height_cell.min_neighbor
-        })
-        .count()
+trait GridVisitor: Default + Sized {
+    type Old;
+    type New: Default;
+
+    fn visit_cell(
+        &mut self,
+        new: &mut Self::New,
+        old: &Self::Old,
+        old_grid: &Grid<Self::Old>,
+        rev_dir: Direction,
+        pos: IVec2,
+    );
+
+    fn visit_grid(old_grid: &Grid<Self::Old>) -> Grid<Self::New> {
+        let mut new_grid: Grid<Self::New> = Grid::default(old_grid.dimensions);
+
+        for dir in Direction::iter() {
+            let row_dir: Direction = dir.next();
+
+            // Look back the way we came to make the most use of the local `GridVisitor`
+            let rev_dir: Direction = (row_dir as usize + 2_usize).into();
+
+            for row_pos in CellIter::corner(old_grid, dir) {
+                let mut grid_visitor: Self = Self::default();
+
+                for pos in CellIter::until(old_grid, row_dir, row_pos) {
+                    grid_visitor.visit_cell(
+                        new_grid.get_mut(pos).unwrap(),
+                        old_grid.get(pos).unwrap(),
+                        old_grid,
+                        rev_dir,
+                        pos,
+                    );
+                }
+            }
+        }
+
+        new_grid
+    }
+}
+
+#[derive(Debug)]
+struct Height(u8);
+
+#[derive(Debug)]
+struct CharIsNotAsciiDigit(char);
+
+impl TryFrom<char> for Height {
+    type Error = CharIsNotAsciiDigit;
+
+    fn try_from(height_char: char) -> Result<Self, Self::Error> {
+        if height_char.is_ascii_digit() {
+            Ok(Height(height_char as u8 - ZERO_OFFSET))
+        } else {
+            Err(CharIsNotAsciiDigit(height_char))
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct IsVisible(bool);
+
+#[derive(Default)]
+struct ComputeIsVisible {
+    max_row_height: u8,
+}
+
+impl GridVisitor for ComputeIsVisible {
+    type Old = Height;
+    type New = IsVisible;
+
+    fn visit_cell(
+        &mut self,
+        new: &mut Self::New,
+        old: &Self::Old,
+        old_grid: &Grid<Self::Old>,
+        _rev_dir: Direction,
+        pos: IVec2,
+    ) {
+        if !new.0 {
+            new.0 = old_grid.is_border(pos) || old.0 > self.max_row_height
+        }
+
+        self.max_row_height = self.max_row_height.max(old.0);
+    }
+}
+
+impl Grid<IsVisible> {
+    fn count(&self) -> usize {
+        self.cells
+            .iter()
+            .filter(|is_visible: &&IsVisible| is_visible.0)
+            .count()
+    }
+}
+
+#[derive(Debug)]
+struct ScenicScore(u32);
+
+impl Default for ScenicScore {
+    fn default() -> Self {
+        Self(1_u32)
+    }
+}
+
+#[derive(Default)]
+struct ComputeScenicScore {
+    height_to_viewing_distance: [u32; 10_usize],
+}
+
+impl GridVisitor for ComputeScenicScore {
+    type Old = Height;
+    type New = ScenicScore;
+
+    fn visit_cell(
+        &mut self,
+        new: &mut Self::New,
+        old: &Self::Old,
+        _old_grid: &Grid<Self::Old>,
+        _rev_dir: Direction,
+        _pos: IVec2,
+    ) {
+        let height_index: usize = old.0 as usize;
+
+        if new.0 != 0_u32 {
+            new.0 *= self.height_to_viewing_distance[height_index];
+        }
+
+        // All cells not taller than this cell can now only see this one
+        self.height_to_viewing_distance[..=height_index].fill(1_u32);
+
+        if let Some(taller_slice) = self
+            .height_to_viewing_distance
+            .get_mut(height_index + 1_usize..)
+        {
+            for taller_viewing_distance in taller_slice {
+                *taller_viewing_distance += 1_u32;
+            }
+        }
+    }
+}
+
+impl Grid<ScenicScore> {
+    fn max(&self) -> u32 {
+        self.cells
+            .iter()
+            .map(|scenic_score: &ScenicScore| scenic_score.0)
+            .max()
+            .unwrap_or_default()
+    }
 }
 
 fn main() {
@@ -486,19 +464,22 @@ fn main() {
         // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
         // this program is executing
         unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                match HeightGrid::try_from(input) {
+            open_utf8_file(
+                input_file_path,
+                |input: &str| match Grid::<Height>::try_from(input) {
                     Ok(height_grid) => {
                         println!(
-                            "count_visible_cells == {}",
-                            count_visible_cells(&height_grid)
+                            "ComputeIsVisible::visit_grid(&height_grid).count() == {}\n\
+                            ComputeScenicScore::visit_grid(&height_grid).max() == {}",
+                            ComputeIsVisible::visit_grid(&height_grid).count(),
+                            ComputeScenicScore::visit_grid(&height_grid).max()
                         );
                     }
                     Err(error) => {
                         panic!("{error:#?}")
                     }
-                }
-            })
+                },
+            )
         }
     {
         eprintln!(
@@ -517,12 +498,24 @@ fn test() {
         33549\n\
         35390";
 
-    match HeightGrid::try_from(HEIGHT_GRID_STR) {
-        Ok(height_grid) => assert_eq!(
-            count_visible_cells(&height_grid),
-            21_usize,
-            "{height_grid:#?}"
-        ),
+    match Grid::<Height>::try_from(HEIGHT_GRID_STR) {
+        Ok(height_grid) => {
+            let is_visible_grid: Grid<IsVisible> = ComputeIsVisible::visit_grid(&height_grid);
+
+            assert_eq!(
+                is_visible_grid.count(),
+                21_usize,
+                "height_grid: {height_grid:#?}\n\nis_visible_grid: {is_visible_grid:#?}"
+            );
+
+            let scenic_score_grid: Grid<ScenicScore> = ComputeScenicScore::visit_grid(&height_grid);
+
+            assert_eq!(
+                scenic_score_grid.max(),
+                8_u32,
+                "height_grid: {height_grid:#?}\n\ncenic_score_grid: {scenic_score_grid:#?}"
+            );
+        }
         Err(error) => panic!("{error:#?}"),
     }
 }
