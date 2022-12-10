@@ -1,11 +1,14 @@
+use std::{mem::transmute, str::from_utf8};
+
 use {
     aoc_2022::*,
     clap::Parser,
+    glam::IVec2,
     std::{
-        fmt::{Debug, Formatter, Result as FmtResult},
+        fmt::{Debug, Error, Formatter, Result as FmtResult, Write},
         num::{NonZeroU32, ParseIntError},
         slice::Iter,
-        str::{FromStr, Split},
+        str::{FromStr, Split, Utf8Error},
     },
 };
 
@@ -103,10 +106,10 @@ struct CpuState {
 }
 
 impl CpuState {
-    fn execute<'cs, I: Iterator<Item = &'cs Instruction>>(
-        &'cs mut self,
+    fn execute<'i, I: Iterator<Item = &'i Instruction>>(
+        self,
         instruction_iter: I,
-    ) -> CpuStateIter<'cs, I> {
+    ) -> CpuStateIter<'i, I> {
         let mut cpu_state_iter: CpuStateIter<I> = CpuStateIter::<I> {
             cpu_state: self,
             instruction_iter,
@@ -119,11 +122,18 @@ impl CpuState {
         cpu_state_iter
     }
 
-    #[inline]
+    /// Computes the signal strength of the CPU state, as described by
+    /// https://adventofcode.com/2022/day/10
+    ///
+    /// This function consumes `self` for ergonomic use in question 1
     fn signal_strength(self) -> i32 {
         self.cycle as i32 * self.x
     }
 
+    /// Helper function to filter an iterator over CPU states if the cycle is in the set {20, 60,
+    /// 100, ...}
+    ///
+    /// This function borrows `self` for ergonomic use in question 1
     fn cycle_mod_40_is_20(&self) -> bool {
         self.cycle % 40_u32 == 20_u32
     }
@@ -138,8 +148,8 @@ impl Default for CpuState {
     }
 }
 
-struct CpuStateIter<'cs, I: Iterator<Item = &'cs Instruction>> {
-    cpu_state: &'cs mut CpuState,
+struct CpuStateIter<'i, I: Iterator<Item = &'i Instruction>> {
+    cpu_state: CpuState,
     instruction_iter: I,
     current_instruction: Option<Instruction>,
     instruction_cycles: u32,
@@ -167,7 +177,7 @@ impl<'cs, I: Iterator<Item = &'cs Instruction>> CpuStateIter<'cs, I> {
 
         if self.instruction_cycles == 0_u32 {
             if let Some(current_instruction) = self.current_instruction.take() {
-                current_instruction.finish(self.cpu_state);
+                current_instruction.finish(&mut self.cpu_state);
             } else {
                 eprintln!("`CpuStateIter::cycle` called with no current instruction");
             }
@@ -178,7 +188,7 @@ impl<'cs, I: Iterator<Item = &'cs Instruction>> CpuStateIter<'cs, I> {
 impl<'cs, I: Iterator<Item = &'cs Instruction>> Debug for CpuStateIter<'cs, I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         f.debug_struct("CpuStateIter")
-            .field("cpu_state", self.cpu_state)
+            .field("cpu_state", &self.cpu_state)
             .field("current_instruction", &self.current_instruction)
             .field("instruction_cycles", &self.instruction_cycles)
             .finish()
@@ -190,7 +200,7 @@ impl<'cs, I: Iterator<Item = &'cs Instruction>> Iterator for CpuStateIter<'cs, I
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_instruction.is_some() {
-            let cpu_state: Option<CpuState> = Some(*self.cpu_state);
+            let cpu_state: Option<CpuState> = Some(self.cpu_state);
 
             self.post_cycle();
             self.pre_cycle();
@@ -199,6 +209,87 @@ impl<'cs, I: Iterator<Item = &'cs Instruction>> Iterator for CpuStateIter<'cs, I
         } else {
             None
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum Pixel {
+    Off = b'.' as u8,
+    On = b'#' as u8,
+}
+
+impl Default for Pixel {
+    fn default() -> Self {
+        Self::Off
+    }
+}
+
+impl From<CpuState> for Pixel {
+    fn from(cpu_state: CpuState) -> Self {
+        if ((cpu_state.cycle as i32 - 1_i32) % Crt::DIMENSIONS.x - cpu_state.x).abs() <= 1_i32 {
+            Self::On
+        } else {
+            Self::Off
+        }
+    }
+}
+
+struct Crt(Grid<Pixel>);
+
+impl Crt {
+    const WIDTH: usize = 40_usize;
+    const HEIGHT: usize = 6_usize;
+    const DIMENSIONS: IVec2 = IVec2::new(Self::WIDTH as i32, Self::HEIGHT as i32);
+
+    fn new() -> Self {
+        Self(Grid::default(Self::DIMENSIONS))
+    }
+
+    fn image<'i, I: Iterator<Item = &'i Instruction>>(&mut self, instruction_iter: I) {
+        for cpu_state in CpuState::default().execute(instruction_iter) {
+            *self.0.get_mut(Self::cycle_pos(cpu_state.cycle)).unwrap() = cpu_state.into()
+        }
+    }
+
+    fn cycle_pos(cycle: u32) -> IVec2 {
+        let cycle: i32 = cycle as i32 - 1_i32;
+
+        IVec2::new(cycle % Self::DIMENSIONS.x, cycle / Self::DIMENSIONS.x)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum StringFromCrtError {
+    Utf8Error(Utf8Error),
+    WriteError(Error),
+}
+
+impl TryFrom<Crt> for String {
+    type Error = StringFromCrtError;
+
+    fn try_from(crt: Crt) -> Result<Self, Self::Error> {
+        use StringFromCrtError as Error;
+
+        let mut string: String = String::with_capacity((Crt::WIDTH + 1_usize) * Crt::HEIGHT);
+        let pixels: &[Pixel] = crt.0.cells();
+
+        // SAFETY: `Pixel` has `#[repr(u8)]`, so the size is valid
+        let bytes: &[u8] = unsafe { transmute(pixels) };
+
+        for y in 0_usize..Crt::HEIGHT {
+            let start: usize = y * Crt::WIDTH;
+            let end: usize = start + Crt::WIDTH;
+
+            write!(
+                &mut string,
+                "{}\n",
+                from_utf8(&bytes[start..end]).map_err(Error::Utf8Error)?
+            )
+            .map_err(Error::WriteError)?;
+        }
+
+        Ok(string)
     }
 }
 
@@ -214,8 +305,7 @@ fn main() {
                 input_file_path,
                 |input: &str| match Instructions::try_from(input) {
                     Ok(instructions) => {
-                        let mut cpu_state: CpuState = CpuState::default();
-
+                        let cpu_state: CpuState = CpuState::default();
                         let sum_of_first_six_signal_strengths_where_cycle_mod_40_is_20: i32 =
                             cpu_state
                                 .execute(instructions.iter())
@@ -224,9 +314,19 @@ fn main() {
                                 .take(6_usize)
                                 .sum();
 
+                        let mut crt: Crt = Crt::new();
+
+                        crt.image(instructions.iter());
+
+                        let crt_string: String = crt.try_into().unwrap_or_default();
+
                         println!(
                             "sum_of_first_six_signal_strengths_where_cycle_mod_40_is_20 == \
-                            {sum_of_first_six_signal_strengths_where_cycle_mod_40_is_20}"
+                            {sum_of_first_six_signal_strengths_where_cycle_mod_40_is_20}\n\
+                            crt_string ==\n\
+                            -----\n\
+                            {crt_string}\
+                            -----"
                         );
                     }
                     Err(error) => {
@@ -413,7 +513,7 @@ mod tests {
 
     #[test]
     fn test_execute() {
-        let mut cpu_state: CpuState = CpuState::default();
+        let cpu_state: CpuState = CpuState::default();
 
         macro_rules! cpu_states {
             [$($cycle:expr => $x:expr,)*] => { vec![ $( CpuState { cycle: $cycle, x: $x }, )* ] };
@@ -461,6 +561,23 @@ mod tests {
                 .sum::<i32>(),
             13140
         );
+    }
+
+    #[test]
+    fn test_crt() {
+        const CRT_STRING: &str = "\
+            ##..##..##..##..##..##..##..##..##..##..\n\
+            ###...###...###...###...###...###...###.\n\
+            ####....####....####....####....####....\n\
+            #####.....#####.....#####.....#####.....\n\
+            ######......######......######......####\n\
+            #######.......#######.......#######.....\n";
+
+        let mut crt: Crt = Crt::new();
+
+        crt.image(example_2_instructions().iter());
+
+        assert_eq!(crt.try_into(), Ok(CRT_STRING.to_owned()));
     }
 
     fn example_1_instructions() -> Instructions {
