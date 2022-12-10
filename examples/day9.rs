@@ -1,9 +1,13 @@
 use {
     aoc_2022::*,
+    bitvec::prelude::*,
     clap::Parser,
     glam::IVec2,
     std::{
-        fmt::{Debug, Formatter, Result as FmtResult},
+        cell::RefCell,
+        fmt::Debug,
+        marker::PhantomData,
+        mem::{size_of_val, transmute, MaybeUninit},
         num::{NonZeroU32, ParseIntError},
         ops::AddAssign,
         slice::Iter,
@@ -41,10 +45,10 @@ impl TryFrom<char> for XZDirection {
 
     fn try_from(xz_direction_char: char) -> Result<Self, Self::Error> {
         Ok(match xz_direction_char {
-            'u' | 'U' => XZDirection::Up,
-            'r' | 'R' => XZDirection::Right,
-            'd' | 'D' => XZDirection::Down,
-            'l' | 'L' => XZDirection::Left,
+            'U' => XZDirection::Up,
+            'R' => XZDirection::Right,
+            'D' => XZDirection::Down,
+            'L' => XZDirection::Left,
             _ => Err(InvalidXZDirectionChar(xz_direction_char))?,
         })
     }
@@ -114,30 +118,95 @@ impl<'s> TryFrom<&'s str> for Motion {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct State {
-    head: IVec2,
-    tail: IVec2,
+pub struct RopeState<const N: usize>([IVec2; N]);
+
+impl<const N: usize> RopeState<N> {
+    const N: usize = N;
+    const TAIL: usize = Self::N - 1_usize;
+
+    fn new(initial: IVec2) -> Self {
+        let mut mu_rope_state: MaybeUninit<RopeState<N>> = MaybeUninit::uninit();
+        let mu_rope_state_size: usize = size_of_val(&mu_rope_state);
+
+        // SAFETY: We're transmuting from a `MaybeUninit` struct to an array of `MaybeUninit`
+        // structs of the same size and alignment
+        let mu_vec_array: &mut [MaybeUninit<IVec2>; N] = unsafe { transmute(&mut mu_rope_state) };
+
+        // sanity check to make sure our assumptions aren't wrong. The compiler complains easily
+        // when using const generics, so let's just make sure this is correct
+        assert_eq!(size_of_val(mu_vec_array), mu_rope_state_size);
+
+        for mu_vec in mu_vec_array {
+            mu_vec.write(initial);
+        }
+
+        // SAFETY: We just initialized each member of `mu_rope_state`, doubly guaranteed by the
+        // assert
+        unsafe { mu_rope_state.assume_init() }
+    }
+
+    pub fn head(&self) -> &IVec2 {
+        &self.0[0_usize]
+    }
+
+    pub fn tail(&self) -> &IVec2 {
+        &self.0[Self::TAIL]
+    }
+
+    pub fn head_mut(&mut self) -> &mut IVec2 {
+        &mut self.0[0_usize]
+    }
+
+    pub fn tail_mut(&mut self) -> &mut IVec2 {
+        &mut self.0[Self::TAIL]
+    }
 }
 
-impl State {
-    fn new(initial: IVec2) -> Self {
-        Self {
-            head: initial,
-            tail: initial,
+impl<const N: usize> RopeState<N>
+where
+    Self: Default,
+{
+    pub fn from_head_and_tail(head: IVec2, tail: IVec2) -> Self {
+        let mut rope_state: Self = Self::default();
+
+        *rope_state.head_mut() = head;
+        *rope_state.tail_mut() = tail;
+
+        rope_state
+    }
+}
+
+impl<const N: usize> AddAssign<IVec2> for RopeState<N> {
+    fn add_assign(&mut self, mut impulse: IVec2) {
+        if Self::N == 0_usize {
+            return;
+        }
+
+        let mut previous: IVec2 = self.0[0_usize] + 2_i32 * impulse;
+
+        for knot in &mut self.0 {
+            let delta: IVec2 = previous - *knot;
+            let abs: IVec2 = delta.abs();
+
+            // This knot doesn't move, and the impulse isn't great enough to move any subsequent
+            // knots
+            if abs.x.max(abs.y) <= 1_i32 {
+                break;
+            }
+
+            impulse = delta.clamp(IVec2::NEG_ONE, IVec2::ONE);
+            *knot += impulse;
+            previous = *knot;
         }
     }
 }
 
-impl AddAssign<Direction> for State {
-    fn add_assign(&mut self, dir: Direction) {
-        self.head += dir.vec();
-
-        let delta: IVec2 = self.head - self.tail;
-        let abs: IVec2 = delta.abs();
-
-        if abs.x.max(abs.y) > 1_i32 {
-            self.tail += delta.clamp(IVec2::NEG_ONE, IVec2::ONE);
-        }
+impl<const N: usize> Default for RopeState<N>
+where
+    [IVec2; N]: Default,
+{
+    fn default() -> Self {
+        Self(Default::default())
     }
 }
 
@@ -162,15 +231,15 @@ impl MotionSequence {
         (initial, dimensions)
     }
 
-    fn iter(&self, initial: IVec2) -> StateIter {
-        StateIter {
+    fn iter<'a, const N: usize>(&'a self, initial: IVec2) -> RopeStateIter<'a, N> {
+        RopeStateIter {
             motion_iter: self.0.iter(),
-            state: State::new(initial),
+            rope_state: RefCell::new(RopeState::new(initial)),
             in_progress_motion: Motion {
                 dir: Direction::North,
                 dist: 0_u32,
             },
-            finished: false,
+            started: false,
         }
     }
 }
@@ -189,89 +258,74 @@ impl<'s> TryFrom<&'s str> for MotionSequence {
     }
 }
 
-struct StateIter<'m> {
-    motion_iter: Iter<'m, Motion>,
-    state: State,
+struct RopeStateIter<'a, const N: usize> {
+    motion_iter: Iter<'a, Motion>,
+    rope_state: RefCell<RopeState<N>>,
     in_progress_motion: Motion,
-    finished: bool,
+    started: bool,
 }
 
-impl<'m> StateIter<'m> {
-    fn step(&mut self) {
-        if self.in_progress_motion.dist != 0_u32 {
-            self.state += self.in_progress_motion.dir;
-            self.in_progress_motion.dist -= 1_u32;
-        } else {
-            eprintln!("Calling `StateIter::step` on iter with no more distance");
-        }
-    }
-}
-
-impl<'m> Iterator for StateIter<'m> {
-    type Item = State;
+impl<'a, const N: usize> Iterator for RopeStateIter<'a, N> {
+    type Item = RefCell<RopeState<N>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !self.finished {
-            let option: Option<State> = Some(self.state.clone());
+        if !self.started {
+            self.started = true;
 
-            if self.in_progress_motion.dist != 0_u32 {
-                self.step();
-            } else if let Some(next_motion) = self.motion_iter.next() {
-                self.in_progress_motion = next_motion.clone();
-                self.step();
-            } else {
-                self.finished = true;
+            Some(self.rope_state.clone())
+        } else {
+            if self.in_progress_motion.dist == 0_u32 {
+                if let Some(next_motion) = self.motion_iter.next() {
+                    self.in_progress_motion = next_motion.clone();
+                }
             }
 
-            option
-        } else {
-            None
+            if self.in_progress_motion.dist != 0_u32 {
+                *self.rope_state.borrow_mut() += self.in_progress_motion.dir.vec();
+                self.in_progress_motion.dist -= 1_u32;
+
+                Some(unsafe { transmute(self.rope_state.clone()) })
+            } else {
+                None
+            }
         }
     }
 }
 
-#[derive(Clone, Copy, Default, PartialEq)]
-struct HasVisited(u8);
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct HasVisited<const N: usize>(BitArray<u16>, PhantomData<[(); N]>);
 
-impl HasVisited {
-    const TAIL: u8 = 1_u8 << 0_u32;
-    const HEAD: u8 = 1_u8 << 1_u32;
-    const TAIL_OFFSET: u32 = Self::TAIL.trailing_zeros();
-    const HEAD_OFFSET: u32 = Self::HEAD.trailing_zeros();
+impl<const N: usize> HasVisited<N> {
+    const N: usize = N;
+    const TAIL: usize = Self::N - 1_usize;
 
-    const fn new(head: bool, tail: bool) -> Self {
-        Self(((head as u8) << Self::HEAD_OFFSET) | ((tail as u8) << Self::TAIL_OFFSET))
-    }
+    fn new(head: bool, tail: bool) -> Self {
+        let mut has_visited: HasVisited<N> = HasVisited::default();
 
-    #[inline]
-    fn get_head(self) -> bool {
-        (self.0 & Self::HEAD) != 0_u8
-    }
+        has_visited.set_head(head);
+        has_visited.set_tail(tail);
 
-    #[inline]
-    fn get_tail(self) -> bool {
-        (self.0 & Self::TAIL) != 0_u8
+        has_visited
     }
 
     fn set_head(&mut self, head: bool) {
-        self.0 = (self.0 & !Self::HEAD) | ((head as u8) << Self::HEAD_OFFSET);
+        self.0.set(0_usize, head);
     }
 
     fn set_tail(&mut self, tail: bool) {
-        self.0 = (self.0 & !Self::TAIL) | ((tail as u8) << Self::TAIL_OFFSET);
+        self.0.set(Self::TAIL, tail);
+    }
+
+    fn get(self, index: usize) -> bool {
+        self.0[index]
+    }
+
+    fn set(&mut self, index: usize, value: bool) {
+        self.0.set(index, value);
     }
 }
 
-impl Debug for HasVisited {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        f.debug_struct("HasVisited")
-            .field("head", &self.get_head())
-            .field("tail", &self.get_tail())
-            .finish()
-    }
-}
-
-impl TryFrom<char> for HasVisited {
+impl<const N: usize> TryFrom<char> for HasVisited<N> {
     type Error = ();
 
     fn try_from(value: char) -> Result<Self, Self::Error> {
@@ -286,24 +340,33 @@ impl TryFrom<char> for HasVisited {
 }
 
 trait HasVisitedGrid {
-    fn visit<I: Iterator<Item = State>>(&mut self, state_iter: I);
+    type State;
 
+    fn visit<I: Iterator<Item = Self::State>>(&mut self, state_iter: I);
+    fn count_visited(&self, index: usize) -> usize;
     fn count_tails(&self) -> usize;
 }
 
-impl HasVisitedGrid for Grid<HasVisited> {
-    fn visit<I: Iterator<Item = State>>(&mut self, state_iter: I) {
+impl<const N: usize> HasVisitedGrid for Grid<HasVisited<N>> {
+    type State = RefCell<RopeState<N>>;
+
+    fn visit<I: Iterator<Item = Self::State>>(&mut self, state_iter: I) {
         for state in state_iter {
-            self.get_mut(state.head).unwrap().set_head(true);
-            self.get_mut(state.tail).unwrap().set_tail(true);
+            for (index, pos) in state.borrow().0.iter().enumerate() {
+                self.get_mut(*pos).unwrap().set(index, true);
+            }
         }
     }
 
-    fn count_tails(&self) -> usize {
+    fn count_visited(&self, index: usize) -> usize {
         self.cells()
             .iter()
-            .filter(|has_visited: &&HasVisited| has_visited.get_tail())
+            .filter(|has_visited: &&HasVisited<N>| has_visited.get(index))
             .count()
+    }
+
+    fn count_tails(&self) -> usize {
+        self.count_visited(HasVisited::<N>::TAIL)
     }
 }
 
@@ -319,16 +382,22 @@ fn main() {
                 input_file_path,
                 |input: &str| match MotionSequence::try_from(input) {
                     Ok(motion_sequence) => {
+                        const TAIL_1: usize = 1_usize;
+                        const TAIL_2: usize = 9_usize;
+                        const N: usize = TAIL_2 + 1_usize;
+
                         let (initial, dimensions): (IVec2, IVec2) =
                             motion_sequence.compute_initial_and_dimensions();
 
-                        let mut has_visited_grid: Grid<HasVisited> = Grid::default(dimensions);
+                        let mut has_visited_grid: Grid<HasVisited<N>> = Grid::default(dimensions);
 
                         has_visited_grid.visit(motion_sequence.iter(initial));
 
                         println!(
-                            "has_visited_grid.count_tails() == {}",
-                            has_visited_grid.count_tails()
+                            "has_visited_grid.count_visited(TAIL_1) == {}\n\
+                            has_visited_grid.count_visited(TAIL_2) == {}",
+                            has_visited_grid.count_visited(TAIL_1),
+                            has_visited_grid.count_visited(TAIL_2)
                         );
                     }
                     Err(error) => {
@@ -349,6 +418,7 @@ fn main() {
 mod tests {
     use super::*;
 
+    const N: usize = 2_usize;
     const MOTION_SEQUENCE_STR: &str = "\
         R 4\n\
         U 4\n\
@@ -380,17 +450,22 @@ mod tests {
         assert_eq!(
             example_motion_sequence()
                 .iter(example_initial_and_dimensions().0)
-                .collect::<Vec<State>>(),
+                .map(
+                    |ref_cell_rope_state: RefCell<RopeState<N>>| ref_cell_rope_state
+                        .borrow()
+                        .clone()
+                )
+                .collect::<Vec<RopeState<N>>>(),
             example_states()
         );
     }
 
     #[test]
     fn test_visit() {
-        let mut has_visited_grid: Grid<HasVisited> =
+        let mut has_visited_grid: Grid<HasVisited<N>> =
             Grid::default(example_initial_and_dimensions().1);
 
-        has_visited_grid.visit(example_states().into_iter());
+        has_visited_grid.visit(example_states().into_iter().map(RefCell::new));
 
         assert_eq!(has_visited_grid, example_has_visited_grid());
     }
@@ -407,11 +482,36 @@ mod tests {
         let (initial, dimensions): (IVec2, IVec2) =
             motion_sequence.compute_initial_and_dimensions();
 
-        let mut has_visited_grid: Grid<HasVisited> = Grid::default(dimensions);
+        let mut has_visited_grid: Grid<HasVisited<N>> = Grid::default(dimensions);
 
         has_visited_grid.visit(motion_sequence.iter(initial));
 
         assert_eq!(has_visited_grid.count_tails(), 13_usize);
+    }
+
+    #[test]
+    fn test_ten_knots() {
+        const N: usize = 10_usize;
+        const MOTION_SEQUENCE_STR: &str = "\
+            R 5\n\
+            U 8\n\
+            L 8\n\
+            D 3\n\
+            R 17\n\
+            D 10\n\
+            L 25\n\
+            U 20";
+
+        let motion_sequence: MotionSequence =
+            MotionSequence::try_from(MOTION_SEQUENCE_STR).unwrap();
+        let (initial, dimensions): (IVec2, IVec2) =
+            motion_sequence.compute_initial_and_dimensions();
+
+        let mut has_visited_grid: Grid<HasVisited<N>> = Grid::default(dimensions);
+
+        has_visited_grid.visit(motion_sequence.iter(initial));
+
+        assert_eq!(has_visited_grid.count_tails(), 36_usize);
     }
 
     fn example_initial_and_dimensions() -> (IVec2, IVec2) {
@@ -441,11 +541,11 @@ mod tests {
         ]
     }
 
-    fn example_states() -> Vec<State> {
+    fn example_states() -> Vec<RopeState<N>> {
         macro_rules! states {
             [$((h: ($hx:expr, $hy:expr), t: ($tx:expr, $ty:expr)),)*] => {
                 vec![
-                    $( State { head: IVec2::new($hx, $hy), tail: IVec2::new($tx, $ty) }, )*
+                    $( RopeState::from_head_and_tail(IVec2::new($hx, $hy), IVec2::new($tx, $ty)), )*
                 ]
             };
         }
@@ -479,7 +579,7 @@ mod tests {
         ]
     }
 
-    fn example_has_visited_grid() -> Grid<HasVisited> {
+    fn example_has_visited_grid() -> Grid<HasVisited<N>> {
         // `rust_fmt` insists on restructuring this array, so separate constants it is
         const ROW_0: &str = " /XX/ ";
         const ROW_1: &str = " //XX/";
@@ -493,7 +593,7 @@ mod tests {
                 .iter()
                 .map(|s: &&str| s.chars())
                 .flatten()
-                .map(HasVisited::try_from)
+                .map(HasVisited::<N>::try_from)
                 .map(Result::unwrap)
                 .collect(),
             6_usize,
