@@ -1,92 +1,7 @@
 use {
-    self::{cell_iter::*, direction::*},
-    aoc_2022::*,
-    clap::Parser,
-    glam::IVec2,
-    static_assertions::const_assert,
-    std::{
-        fmt::{Debug, DebugList, Formatter, Result as FmtResult},
-        iter::Peekable,
-        mem::transmute,
-        str::Split,
-    },
-    strum::{EnumCount, EnumIter, IntoEnumIterator},
+    self::cell_iter::*, aoc_2022::*, clap::Parser, glam::IVec2, std::fmt::Debug,
+    strum::IntoEnumIterator,
 };
-
-mod direction {
-    use super::*;
-
-    macro_rules! define_direction {
-        {
-            $(#[$meta:meta])*
-            $vis:vis enum $direction:ident {
-                $( $variant:ident, )*
-            }
-        } => {
-            $(#[$meta])*
-            $vis enum $direction {
-                $( $variant, )*
-            }
-
-            const VECS: [IVec2; $direction::COUNT] = [
-                $( $direction::$variant.vec_internal(), )*
-            ];
-        };
-    }
-
-    define_direction! {
-        #[derive(Copy, Clone, Debug, EnumCount, EnumIter)]
-        #[repr(usize)]
-        pub enum Direction {
-            North,
-            East,
-            South,
-            West,
-        }
-    }
-
-    // This guarantees we can safely convert from `usize` to `Direction` by masking the smallest 2
-    // bits
-    const_assert!(Direction::COUNT == 4_usize);
-
-    impl Direction {
-        #[inline]
-        pub const fn vec(self) -> IVec2 {
-            VECS[self as usize]
-        }
-
-        #[inline]
-        pub const fn from_usize(value: usize) -> Self {
-            unsafe { transmute(value & (Self::COUNT - 1_usize)) }
-        }
-
-        #[inline]
-        pub const fn next(self) -> Self {
-            Self::from_usize(self as usize + 1_usize)
-        }
-
-        const fn vec_internal(self) -> IVec2 {
-            match self {
-                Self::North => IVec2::NEG_Y,
-                Self::East => IVec2::X,
-                Self::South => IVec2::Y,
-                Self::West => IVec2::NEG_X,
-            }
-        }
-    }
-
-    impl From<Direction> for IVec2 {
-        fn from(value: Direction) -> Self {
-            value.vec()
-        }
-    }
-
-    impl From<usize> for Direction {
-        fn from(value: usize) -> Self {
-            Self::from_usize(value)
-        }
-    }
-}
 
 mod cell_iter {
     use super::*;
@@ -100,7 +15,7 @@ mod cell_iter {
     impl CellIter {
         pub(super) fn corner<T>(grid: &Grid<T>, dir: Direction) -> Self {
             let dir_vec: IVec2 = dir.vec();
-            let curr: IVec2 = (-grid.dimensions * (dir_vec + dir_vec.perp()))
+            let curr: IVec2 = (-grid.dimensions() * (dir_vec + dir_vec.perp()))
                 .clamp(IVec2::ZERO, grid.max_dimensions());
 
             Self::until(grid, dir, curr)
@@ -109,7 +24,7 @@ mod cell_iter {
         #[inline(always)]
         pub(super) fn until<T>(grid: &Grid<T>, dir: Direction, curr: IVec2) -> Self {
             let dir_vec: IVec2 = dir.vec();
-            let end: IVec2 = (curr + dir_vec * grid.dimensions)
+            let end: IVec2 = (curr + dir_vec * grid.dimensions())
                 .clamp(IVec2::ZERO, grid.max_dimensions())
                 + dir_vec;
 
@@ -158,152 +73,6 @@ mod cell_iter {
     }
 }
 
-struct SideLen(usize);
-
-impl From<SideLen> for IVec2 {
-    fn from(side_len: SideLen) -> Self {
-        IVec2::new(side_len.0 as i32, side_len.0 as i32)
-    }
-}
-
-struct Grid<T> {
-    cells: Vec<T>,
-
-    /// Should only contain unsigned values, but is signed for ease of use for iterating
-    dimensions: IVec2,
-}
-
-impl<T> Grid<T> {
-    #[cfg(test)]
-    pub fn empty(dimensions: IVec2) -> Self {
-        Self {
-            cells: Vec::new(),
-            dimensions,
-        }
-    }
-
-    pub fn allocate(dimensions: IVec2) -> Self {
-        Self {
-            cells: Vec::with_capacity((dimensions.x * dimensions.y) as usize),
-            dimensions,
-        }
-    }
-
-    #[inline]
-    pub fn contains(&self, pos: IVec2) -> bool {
-        pos.cmpge(IVec2::ZERO).all() && pos.cmplt(self.dimensions).all()
-    }
-
-    pub fn is_border(&self, pos: IVec2) -> bool {
-        self.contains(pos)
-            && (pos.cmpeq(IVec2::ZERO).any() || pos.cmpeq(self.max_dimensions()).any())
-    }
-
-    #[inline]
-    pub fn index_from_pos(&self, pos: IVec2) -> usize {
-        pos.y as usize * self.dimensions.x as usize + pos.x as usize
-    }
-
-    pub fn try_index_from_pos(&self, pos: IVec2) -> Option<usize> {
-        if self.contains(pos) {
-            Some(self.index_from_pos(pos))
-        } else {
-            None
-        }
-    }
-
-    #[inline(always)]
-    fn max_dimensions(&self) -> IVec2 {
-        self.dimensions - IVec2::ONE
-    }
-
-    pub fn get(&self, pos: IVec2) -> Option<&T> {
-        self.try_index_from_pos(pos)
-            .map(|index: usize| &self.cells[index])
-    }
-
-    pub fn get_mut(&mut self, pos: IVec2) -> Option<&mut T> {
-        self.try_index_from_pos(pos)
-            .map(|index: usize| &mut self.cells[index])
-    }
-}
-
-impl<T: Debug> Debug for Grid<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        f.write_str("Grid")?;
-        let mut y_list: DebugList = f.debug_list();
-
-        for y in 0_i32..self.dimensions.y {
-            let start: usize = (y * self.dimensions.x) as usize;
-
-            y_list.entry(&&self.cells[start..(start + self.dimensions.x as usize)]);
-        }
-
-        y_list.finish()
-    }
-}
-
-impl<T: Default> Grid<T> {
-    fn default(dimensions: IVec2) -> Self {
-        let capacity: usize = (dimensions.x * dimensions.y) as usize;
-        let mut cells: Vec<T> = Vec::with_capacity(capacity);
-
-        cells.resize_with(capacity, T::default);
-
-        Self { cells, dimensions }
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-enum GridParseError<'s, E> {
-    NoInitialToken,
-    IsNotAscii(&'s str),
-    InvalidLength { line: &'s str, expected_len: usize },
-    CellParseError(E),
-}
-
-impl<'s, E, T: TryFrom<char, Error = E>> TryFrom<&'s str> for Grid<T> {
-    type Error = GridParseError<'s, E>;
-
-    fn try_from(grid_str: &'s str) -> Result<Self, Self::Error> {
-        use GridParseError as Error;
-
-        let mut grid_line_iter: Peekable<Split<char>> = grid_str.split('\n').peekable();
-
-        let side_len: usize = grid_line_iter.peek().ok_or(Error::NoInitialToken)?.len();
-
-        let mut grid: Grid<T> = Grid::allocate(SideLen(side_len).into());
-        let mut lines: usize = 0_usize;
-
-        for grid_line_str in grid_line_iter {
-            if !grid_line_str.is_ascii() {
-                return Err(Error::IsNotAscii(grid_line_str));
-            }
-
-            if grid_line_str.len() != side_len {
-                return Err(Error::InvalidLength {
-                    line: grid_line_str,
-                    expected_len: side_len,
-                });
-            }
-
-            for cell_char in grid_line_str.chars() {
-                grid.cells
-                    .push(cell_char.try_into().map_err(Error::CellParseError)?);
-            }
-
-            lines += 1_usize;
-        }
-
-        if lines != side_len {
-            grid.dimensions.y = lines as i32;
-        }
-
-        Ok(grid)
-    }
-}
-
 trait GridVisitor: Default + Sized {
     type Old;
     type New: Default;
@@ -318,7 +87,7 @@ trait GridVisitor: Default + Sized {
     );
 
     fn visit_grid(old_grid: &Grid<Self::Old>) -> Grid<Self::New> {
-        let mut new_grid: Grid<Self::New> = Grid::default(old_grid.dimensions);
+        let mut new_grid: Grid<Self::New> = Grid::default(old_grid.dimensions());
 
         for dir in Direction::iter() {
             let row_dir: Direction = dir.next();
@@ -391,9 +160,13 @@ impl GridVisitor for ComputeIsVisible {
     }
 }
 
-impl Grid<IsVisible> {
+trait IsVisibleTrait {
+    fn count(&self) -> usize;
+}
+
+impl IsVisibleTrait for Grid<IsVisible> {
     fn count(&self) -> usize {
-        self.cells
+        self.cells()
             .iter()
             .filter(|is_visible: &&IsVisible| is_visible.0)
             .count()
@@ -446,9 +219,13 @@ impl GridVisitor for ComputeScenicScore {
     }
 }
 
-impl Grid<ScenicScore> {
+trait ScenicScoreTrait {
+    fn max(&self) -> u32;
+}
+
+impl ScenicScoreTrait for Grid<ScenicScore> {
     fn max(&self) -> u32 {
-        self.cells
+        self.cells()
             .iter()
             .map(|scenic_score: &ScenicScore| scenic_score.0)
             .max()
