@@ -4,8 +4,8 @@ use {
     glam::IVec2,
     std::{
         cmp::Ordering,
-        collections::{BinaryHeap, HashSet},
-        fmt::{Debug, DebugList, Formatter, Result as FmtResult},
+        collections::{BinaryHeap, HashSet, VecDeque},
+        fmt::{Debug, Formatter, Result as FmtResult},
         hash::Hash,
         mem::take,
         ops::Add,
@@ -49,31 +49,50 @@ impl TryFrom<char> for HeightCell {
 struct IsVisitable(u8);
 
 impl IsVisitable {
-    #[inline]
-    fn mask(dir: Direction) -> u8 {
-        1_u8 << dir as u32
+    const FROM_OFFSET: u32 = 4_u32;
+
+    #[inline(always)]
+    fn shift(byte: u8, dir: Direction, to: bool) -> u8 {
+        byte << if to {
+            dir as u32
+        } else {
+            dir as u32 + Self::FROM_OFFSET
+        }
     }
 
-    fn get(self, dir: Direction) -> bool {
-        (self.0 & Self::mask(dir)) != 0_u8
+    #[inline(always)]
+    fn mask(dir: Direction, to: bool) -> u8 {
+        Self::shift(1_u8, dir, to)
     }
 
-    fn set(&mut self, dir: Direction, value: bool) {
-        self.0 = (self.0 & !Self::mask(dir)) | ((value as u8) << dir as u32)
+    fn get(self, dir: Direction, to: bool) -> bool {
+        (self.0 & Self::mask(dir, to)) != 0_u8
+    }
+
+    fn set(&mut self, dir: Direction, to: bool, value: bool) {
+        self.0 = (self.0 & !Self::mask(dir, to)) | Self::shift(value as u8, dir, to)
+    }
+
+    fn array(&self) -> [(Direction, bool); 8_usize] {
+        let mut array: [(Direction, bool); 8_usize] = [(Direction::North, false); 8_usize];
+
+        for dir in Direction::iter() {
+            array[dir as usize] = (dir, self.get(dir, true));
+            array[dir as usize + Self::FROM_OFFSET as usize] = (dir, self.get(dir, false));
+        }
+
+        array
     }
 }
 
 impl Debug for IsVisitable {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        f.write_str("IsVisitable")?;
+        let array: [(Direction, bool); 8_usize] = self.array();
 
-        let mut debug_list: DebugList = f.debug_list();
-
-        for dir in Direction::iter() {
-            debug_list.entry(&(dir, self.get(dir)));
-        }
-
-        debug_list.finish()
+        f.debug_struct("IsVisitable")
+            .field("to", &&array[..Self::FROM_OFFSET as usize])
+            .field("from", &&array[..Self::FROM_OFFSET as usize])
+            .finish()
     }
 }
 
@@ -93,11 +112,16 @@ impl GridVisitor for IsVisitableGridVisitor {
         &mut self,
         new: &mut Self::New,
         old: &Self::Old,
-        _old_grid: &Grid<Self::Old>,
+        old_grid: &Grid<Self::Old>,
         rev_dir: Direction,
-        _pos: IVec2,
+        pos: IVec2,
     ) {
-        new.set(rev_dir, old.0 >= self.0 - 1_u8);
+        new.set(rev_dir, true, old.0 >= self.0 - 1_u8);
+        new.set(
+            rev_dir,
+            false,
+            old_grid.contains(pos + rev_dir.vec()) && self.0 >= old.0 - 1_u8,
+        );
         self.0 = old.0;
     }
 }
@@ -193,8 +217,9 @@ impl<V: Clone + PartialEq, C: Clone + Ord> Ord for OpenSetElement<V, C> {
     }
 }
 
+/// An implementation of https://en.wikipedia.org/wiki/A*_search_algorithm
 trait AStar: Sized {
-    type Vertex: Clone + Debug + Eq + Hash;
+    type Vertex: Clone + Eq + Hash;
     type Cost: Add<Self::Cost, Output = Self::Cost> + Clone + Ord + Sized;
 
     fn start(&self) -> &Self::Vertex;
@@ -230,9 +255,7 @@ trait AStar: Sized {
         let mut neighbor_updates: Vec<Option<(Self::Cost, bool)>> = Vec::new();
         let mut any_update_was_in_open_set_set: bool = false;
 
-        while let Some(open_set_element) = open_set_heap.pop() {
-            let current: Self::Vertex = open_set_element.0;
-
+        while let Some(OpenSetElement(current, _)) = open_set_heap.pop() {
             if self.is_end(&current) {
                 return Some(self.path_to(&current));
             }
@@ -313,12 +336,12 @@ trait AStar: Sized {
     }
 }
 
-struct HeightGridAStar<'h> {
+struct HeightGridAStarAscent<'h> {
     height_grid: &'h HeightGrid,
     shortest_paths: Grid<ShortestPath>,
 }
 
-impl<'h> HeightGridAStar<'h> {
+impl<'h> HeightGridAStarAscent<'h> {
     fn new(height_grid: &'h HeightGrid) -> Self {
         let mut shortest_paths: Grid<ShortestPath> =
             Grid::default(height_grid.heights.dimensions());
@@ -332,7 +355,7 @@ impl<'h> HeightGridAStar<'h> {
     }
 }
 
-impl<'h> AStar for HeightGridAStar<'h> {
+impl<'h> AStar for HeightGridAStarAscent<'h> {
     type Vertex = IVec2;
     type Cost = usize;
 
@@ -384,7 +407,7 @@ impl<'h> AStar for HeightGridAStar<'h> {
         let is_visitable: IsVisitable = *self.height_grid.is_visitable.get(*vertex).unwrap();
 
         for dir in Direction::iter() {
-            if is_visitable.get(dir) {
+            if is_visitable.get(dir, true) {
                 neighbors.push(*vertex + dir.vec());
             }
         }
@@ -404,6 +427,106 @@ impl<'h> AStar for HeightGridAStar<'h> {
     }
 }
 
+// https://en.wikipedia.org/wiki/Breadth-first_search
+trait BreadthFirstSearch: Sized {
+    type Vertex: Clone + Debug + Eq + Hash;
+
+    fn start(&self) -> &Self::Vertex;
+    fn is_end(&self, vertex: &Self::Vertex) -> bool;
+    fn path_to(&self, vertex: &Self::Vertex) -> Vec<Self::Vertex>;
+    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>);
+    fn update_parent(&mut self, from: &Self::Vertex, to: &Self::Vertex);
+
+    fn run(mut self) -> Option<Vec<Self::Vertex>> {
+        let mut queue: VecDeque<Self::Vertex> = VecDeque::new();
+        let mut explored: HashSet<Self::Vertex> = HashSet::new();
+
+        let start: Self::Vertex = self.start().clone();
+        explored.insert(start.clone());
+        queue.push_back(start);
+
+        let mut neighbors: Vec<Self::Vertex> = Vec::new();
+
+        while let Some(current) = queue.pop_front() {
+            if self.is_end(&current) {
+                return Some(self.path_to(&current));
+            }
+
+            self.neighbors(&current, &mut neighbors);
+
+            for neighbor in neighbors.drain(..) {
+                if explored.insert(neighbor.clone()) {
+                    self.update_parent(&current, &neighbor);
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+
+        None
+    }
+}
+
+struct HeightGridBreadthFirstSearchDescent<'h> {
+    height_grid: &'h HeightGrid,
+    predecessors: Grid<Option<Direction>>,
+}
+
+impl<'h> HeightGridBreadthFirstSearchDescent<'h> {
+    fn new(height_grid: &'h HeightGrid) -> Self {
+        Self {
+            height_grid,
+            predecessors: Grid::default(height_grid.heights.dimensions()),
+        }
+    }
+}
+
+impl<'h> BreadthFirstSearch for HeightGridBreadthFirstSearchDescent<'h> {
+    type Vertex = IVec2;
+
+    fn start(&self) -> &Self::Vertex {
+        &self.height_grid.end
+    }
+
+    fn is_end(&self, vertex: &Self::Vertex) -> bool {
+        self.height_grid.heights.get(*vertex).unwrap().0 <= b'a'
+    }
+
+    fn path_to(&self, vertex: &Self::Vertex) -> Vec<Self::Vertex> {
+        // We'll cheat a bit here. Technically, we're supposed to return a path from `self.start()`
+        // to whereever made `self.is_end` return true, but that's the opposite order from what
+        // we want in the context of this trait implementation. It's easier to collect in the
+        // opposite order and just return that instead of flip it once within this function, and
+        // then once more after receiving the `Vec` in the calling context 🤫
+        let mut path: Vec<IVec2> = Vec::new();
+        let mut vertex: IVec2 = *vertex;
+
+        path.push(vertex);
+
+        while let Some(predecessor) = self.predecessors.get(vertex).unwrap() {
+            vertex += predecessor.vec();
+            path.push(vertex);
+        }
+
+        path
+    }
+
+    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>) {
+        neighbors.clear();
+
+        let is_visitable: IsVisitable = *self.height_grid.is_visitable.get(*vertex).unwrap();
+
+        for dir in Direction::iter() {
+            if is_visitable.get(dir, false) {
+                neighbors.push(*vertex + dir.vec());
+            }
+        }
+    }
+
+    fn update_parent(&mut self, from: &Self::Vertex, to: &Self::Vertex) {
+        *self.predecessors.get_mut(*to).unwrap() = Some((*from - *to).try_into().unwrap());
+    }
+}
+
 fn main() {
     let args: Args = Args::parse();
     let input_file_path: &str = args.input_file_path("input/day12.txt");
@@ -415,11 +538,24 @@ fn main() {
             open_utf8_file(input_file_path, |input: &str| {
                 match HeightGrid::try_from(input) {
                     Ok(height_grid) => {
-                        let path: Vec<IVec2> = HeightGridAStar::new(&height_grid)
+                        let a_star_path: Vec<IVec2> = HeightGridAStarAscent::new(&height_grid)
                             .run()
                             .expect("Failed to obtain a path from A*");
+                        let bfs_path: Vec<IVec2> =
+                            HeightGridBreadthFirstSearchDescent::new(&height_grid)
+                                .run()
+                                .expect("Failed to obtain a path from BFS");
 
-                        println!("path.len() == {}\npath == {path:#?}", path.len());
+                        println!(
+                            "a_star_path.len() == {} (steps == {})\n\
+                            bfs_path.len() == {} (steps == {})\n\n\
+                            a_star_path == {a_star_path:#?}\n\n
+                            bfs_path == {bfs_path:#?}",
+                            a_star_path.len(),
+                            a_star_path.len() - 1_usize,
+                            bfs_path.len(),
+                            bfs_path.len() - 1_usize
+                        );
                     }
                     Err(error) => {
                         panic!("{error:#?}")
@@ -492,10 +628,21 @@ mod tests {
     #[test]
     fn test_a_star_run() {
         let height_grid: HeightGrid = example_height_grid();
-        let path: Vec<IVec2> = HeightGridAStar::new(&height_grid).run().unwrap();
+        let path: Vec<IVec2> = HeightGridAStarAscent::new(&height_grid).run().unwrap();
 
         // 31 total steps, but 32 elements including the start
         assert_eq!(path.len(), 32_usize);
+    }
+
+    #[test]
+    fn test_breadth_first_search_run() {
+        let height_grid: HeightGrid = example_height_grid();
+        let path: Vec<IVec2> = HeightGridBreadthFirstSearchDescent::new(&height_grid)
+            .run()
+            .unwrap();
+
+        // 29 total steps, but 30 elements including the start
+        assert_eq!(path.len(), 30_usize);
     }
 
     fn example_height_grid() -> HeightGrid {
@@ -504,50 +651,50 @@ mod tests {
 
         for ((height_cell_char, is_visitable_i32), (height_cell, is_visitable)) in vec![
             // Row 0
-            ('a', 0x6),
-            ('a', 0xE),
-            ('b', 0xC),
-            ('q', 0xE),
-            ('p', 0xA),
-            ('o', 0xA),
-            ('n', 0xA),
-            ('m', 0xC),
+            ('a', 0x66),
+            ('a', 0xEE),
+            ('b', 0xEC),
+            ('q', 0x6E),
+            ('p', 0xEA),
+            ('o', 0xEA),
+            ('n', 0xEA),
+            ('m', 0xCC),
             // Row 1
-            ('a', 0x7),
-            ('b', 0xF),
-            ('c', 0xD),
-            ('r', 0xD),
-            ('y', 0xF),
-            ('x', 0xB),
-            ('x', 0xF),
-            ('l', 0x5),
+            ('a', 0x77),
+            ('b', 0xFF),
+            ('c', 0xFD),
+            ('r', 0x7D),
+            ('y', 0x6F),
+            ('x', 0xEB),
+            ('x', 0xCF),
+            ('l', 0xD5),
             // Row 2
-            ('a', 0x5),
-            ('c', 0xF),
-            ('c', 0xD),
-            ('s', 0xD),
-            ('z', 0xF),
-            ('z', 0xF),
-            ('x', 0x7),
-            ('k', 0x5),
+            ('a', 0x75),
+            ('c', 0x7F),
+            ('c', 0xFD),
+            ('s', 0x7D),
+            ('z', 0x3F),
+            ('z', 0x8F),
+            ('x', 0xD7),
+            ('k', 0xD5),
             // Row 3
-            ('a', 0x5),
-            ('c', 0xF),
-            ('c', 0xD),
-            ('t', 0xF),
-            ('u', 0xE),
-            ('v', 0xE),
-            ('w', 0xF),
-            ('j', 0x5),
+            ('a', 0x75),
+            ('c', 0x7F),
+            ('c', 0xFD),
+            ('t', 0x3F),
+            ('u', 0xBE),
+            ('v', 0xBE),
+            ('w', 0x9F),
+            ('j', 0xD5),
             // Row 4
-            ('a', 0x3),
-            ('b', 0x9),
-            ('d', 0xB),
-            ('e', 0xA),
-            ('f', 0xA),
-            ('g', 0xA),
-            ('h', 0xA),
-            ('i', 0x9),
+            ('a', 0x33),
+            ('b', 0xB9),
+            ('d', 0x3B),
+            ('e', 0xBA),
+            ('f', 0xBA),
+            ('g', 0xBA),
+            ('h', 0xBA),
+            ('i', 0x99),
         ]
         .iter()
         .zip(
