@@ -1,4 +1,4 @@
-use {aoc_2022::*, clap::Parser};
+use aoc_2022::*;
 
 /// Tries to convert an item character into a priority, as described by
 /// https://adventofcode.com/2022/day/3

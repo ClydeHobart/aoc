@@ -1,6 +1,5 @@
 use {
     aoc_2022::*,
-    clap::Parser,
     std::{cmp::Ordering, convert::TryFrom, mem::transmute, str::Chars},
 };
 

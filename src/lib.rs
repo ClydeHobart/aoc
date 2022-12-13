@@ -1,6 +1,5 @@
 use {
     self::cell_iter::*,
-    clap::Parser,
     glam::IVec2,
     memmap::Mmap,
     static_assertions::const_assert,
@@ -16,7 +15,7 @@ use {
     strum::{EnumCount, EnumIter, IntoEnumIterator},
 };
 
-pub use direction::*;
+pub use {self::direction::*, clap::Parser};
 
 /// Arguments for program execution
 ///

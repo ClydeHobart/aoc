@@ -1,6 +1,5 @@
 use {
     aoc_2022::*,
-    clap::Parser,
     glam::IVec2,
     std::{
         cmp::Ordering,

@@ -2,7 +2,6 @@ use std::{mem::transmute, str::from_utf8};
 
 use {
     aoc_2022::*,
-    clap::Parser,
     glam::IVec2,
     std::{
         fmt::{Debug, Error, Formatter, Result as FmtResult, Write},

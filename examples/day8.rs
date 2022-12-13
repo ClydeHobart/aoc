@@ -1,4 +1,4 @@
-use {aoc_2022::*, clap::Parser, glam::IVec2, std::fmt::Debug};
+use {aoc_2022::*, glam::IVec2, std::fmt::Debug};
 
 #[derive(Debug)]
 struct Height(u8);

@@ -1,4 +1,4 @@
-use {aoc_2022::*, clap::Parser, std::collections::VecDeque};
+use {aoc_2022::*, std::collections::VecDeque};
 
 #[derive(Default)]
 struct ProcessState {

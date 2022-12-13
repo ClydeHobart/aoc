@@ -1,6 +1,5 @@
 use {
     aoc_2022::*,
-    clap::Parser,
     std::{
         cmp::Ordering,
         iter::Peekable,
@@ -12,6 +11,7 @@ use {
 };
 
 /// A cell of the cargo bay drawing, as described by https://adventofcode.com/2022/day/5
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum DrawingCell {
     /// An empty space in the drawing present above any columns that are not the tallest,
     /// represented by the regex pattern `   `
@@ -29,7 +29,7 @@ enum DrawingCell {
 }
 
 /// An error encountered while parsing a `DrawingCell` from a byte slice
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum DrawingCellParseError {
     /// The byte slice is not a valid UTF-8-encoded string slice
     NotUtf8(Utf8Error),
@@ -92,6 +92,7 @@ impl TryFrom<&[u8]> for DrawingCell {
     }
 }
 
+#[derive(Debug, PartialEq)]
 struct DrawingGrid {
     cells: Vec<DrawingCell>,
 
@@ -99,7 +100,7 @@ struct DrawingGrid {
     columns: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum DrawingGridParseError {
     NoInitialToken,
     InvalidLineLength(usize),
@@ -649,5 +650,62 @@ fn main() {
             "Encountered error {} when opening file \"{}\"",
             err, input_file_path
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DRAWING_GRID_STR: &str = concat!(
+        "    [D]    \n",
+        "[N] [C]    \n",
+        "[Z] [M] [P]\n",
+        " 1   2   3 "
+    );
+    const REARRANGEMENT_PROCEDURE_STR: &str = concat!(
+        "move 1 from 2 to 1\n",
+        "move 3 from 1 to 3\n",
+        "move 2 from 2 to 1\n",
+        "move 1 from 1 to 2"
+    );
+    const CARGO_STACKS_SIMULATION_STR: &str = concat!(
+        "    [D]    \n",
+        "[N] [C]    \n",
+        "[Z] [M] [P]\n",
+        " 1   2   3 \n",
+        "\n",
+        "move 1 from 2 to 1\n",
+        "move 3 from 1 to 3\n",
+        "move 2 from 2 to 1\n",
+        "move 1 from 1 to 2"
+    );
+
+    #[test]
+    fn test_drawing_grid_from_str() {
+        assert_eq!(DRAWING_GRID_STR.try_into(), Ok(example_drawing_grid()));
+    }
+
+    fn example_drawing_grid() -> DrawingGrid {
+        use DrawingCell::*;
+
+        let emty = || Empty;
+        let c = |c: char| Crate(c as u8);
+        let idx = |i: u8| ColumnIndex(i);
+
+        DrawingGrid {
+            cells: [
+                [emty(), c('D'), emty()],
+                [c('N'), c('C'), emty()],
+                [c('Z'), c('M'), c('P')],
+                [idx(1), idx(2), idx(3)],
+            ]
+            .iter()
+            .map(|drawing_cells| drawing_cells.iter())
+            .flatten()
+            .copied()
+            .collect(),
+            columns: 3_usize,
+        }
     }
 }

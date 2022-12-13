@@ -1,7 +1,6 @@
 use {
     aoc_2022::*,
     bitvec::prelude::*,
-    clap::Parser,
     glam::IVec2,
     std::{
         cell::RefCell,
