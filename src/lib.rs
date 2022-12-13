@@ -1,4 +1,5 @@
 use {
+    self::cell_iter::*,
     clap::Parser,
     glam::IVec2,
     memmap::Mmap,
@@ -12,7 +13,7 @@ use {
         ops::{Deref, DerefMut},
         str::{from_utf8, Split, Utf8Error},
     },
-    strum::{EnumCount, EnumIter},
+    strum::{EnumCount, EnumIter, IntoEnumIterator},
 };
 
 pub use direction::*;
@@ -146,7 +147,7 @@ mod direction {
 
     define_direction! {
         #[derive(Copy, Clone, Debug, EnumCount, EnumIter, PartialEq)]
-        #[repr(usize)]
+        #[repr(u8)]
         pub enum Direction {
             North,
             East,
@@ -155,24 +156,27 @@ mod direction {
         }
     }
 
-    // This guarantees we can safely convert from `usize` to `Direction` by masking the smallest 2
-    // bits
+    // This guarantees we can safely convert from `u8` to `Direction` by masking the smallest 2
+    // bits, which is the same as masking by `U8_MASK`
     const_assert!(Direction::COUNT == 4_usize);
 
     impl Direction {
+        const U8_MASK: u8 = Self::COUNT as u8 - 1_u8;
+
         #[inline]
         pub const fn vec(self) -> IVec2 {
             VECS[self as usize]
         }
 
         #[inline]
-        pub const fn from_usize(value: usize) -> Self {
-            unsafe { transmute(value & (Self::COUNT - 1_usize)) }
+        pub const fn from_u8(value: u8) -> Self {
+            // SAFETY: See `const_assert` above
+            unsafe { transmute(value & Self::U8_MASK) }
         }
 
         #[inline]
         pub const fn next(self) -> Self {
-            Self::from_usize(self as usize + 1_usize)
+            Self::from_u8(self as u8 + 1_u8)
         }
 
         const fn vec_internal(self) -> IVec2 {
@@ -191,9 +195,23 @@ mod direction {
         }
     }
 
-    impl From<usize> for Direction {
-        fn from(value: usize) -> Self {
-            Self::from_usize(value)
+    impl From<u8> for Direction {
+        fn from(value: u8) -> Self {
+            Self::from_u8(value)
+        }
+    }
+
+    impl TryFrom<IVec2> for Direction {
+        type Error = ();
+
+        fn try_from(value: IVec2) -> Result<Self, Self::Error> {
+            Ok(match value {
+                IVec2::NEG_Y => Self::North,
+                IVec2::X => Self::East,
+                IVec2::Y => Self::South,
+                IVec2::NEG_X => Self::West,
+                _ => Err(())?,
+            })
         }
     }
 }
@@ -280,6 +298,12 @@ impl<T> Grid<T> {
         }
     }
 
+    pub fn pos_from_index(&self, index: usize) -> IVec2 {
+        let x: usize = self.dimensions.x as usize;
+
+        IVec2::new((index % x) as i32, (index / x) as i32)
+    }
+
     #[inline(always)]
     pub fn max_dimensions(&self) -> IVec2 {
         self.dimensions - IVec2::ONE
@@ -329,7 +353,7 @@ impl<T: PartialEq> PartialEq for Grid<T> {
 }
 
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum GridParseError<'s, E> {
     NoInitialToken,
     IsNotAscii(&'s str),
@@ -375,5 +399,116 @@ impl<'s, E, T: TryFrom<char, Error = E>> TryFrom<&'s str> for Grid<T> {
         }
 
         Ok(grid)
+    }
+}
+
+mod cell_iter {
+    use super::*;
+
+    pub struct CellIter {
+        dir: Direction,
+        curr: IVec2,
+        end: IVec2,
+    }
+
+    impl CellIter {
+        pub(super) fn corner<T>(grid: &Grid<T>, dir: Direction) -> Self {
+            let dir_vec: IVec2 = dir.vec();
+            let curr: IVec2 = (-grid.dimensions() * (dir_vec + dir_vec.perp()))
+                .clamp(IVec2::ZERO, grid.max_dimensions());
+
+            Self::until(grid, dir, curr)
+        }
+
+        #[inline(always)]
+        pub(super) fn until<T>(grid: &Grid<T>, dir: Direction, curr: IVec2) -> Self {
+            let dir_vec: IVec2 = dir.vec();
+            let end: IVec2 = (curr + dir_vec * grid.dimensions())
+                .clamp(IVec2::ZERO, grid.max_dimensions())
+                + dir_vec;
+
+            Self { dir, curr, end }
+        }
+    }
+
+    impl Iterator for CellIter {
+        type Item = IVec2;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.curr != self.end {
+                let prev: IVec2 = self.curr;
+
+                self.curr += self.dir.vec();
+
+                Some(prev)
+            } else {
+                None
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_corner() {
+            let grid: Grid<()> = Grid::empty(SideLen(5_usize).into());
+
+            assert_eq!(
+                Direction::iter()
+                    .map(|dir: Direction| -> CellIter { CellIter::corner(&grid, dir) })
+                    .flatten()
+                    .map(|pos: IVec2| -> usize { grid.index_from_pos(pos) })
+                    .collect::<Vec<usize>>(),
+                vec![
+                    20, 15, 10, 5, 0, // North
+                    0, 1, 2, 3, 4, // East
+                    4, 9, 14, 19, 24, // South
+                    24, 23, 22, 21, 20 // West
+                ]
+            );
+        }
+    }
+}
+
+pub trait GridVisitor: Default + Sized {
+    type Old;
+    type New: Default;
+
+    fn visit_cell(
+        &mut self,
+        new: &mut Self::New,
+        old: &Self::Old,
+        old_grid: &Grid<Self::Old>,
+        rev_dir: Direction,
+        pos: IVec2,
+    );
+
+    fn visit_grid(old_grid: &Grid<Self::Old>) -> Grid<Self::New> {
+        let mut new_grid: Grid<Self::New> = Grid::default(old_grid.dimensions());
+
+        for dir in Direction::iter() {
+            let row_dir: Direction = dir.next();
+
+            // Look back the way we came to make the most use of the local `GridVisitor`
+            let rev_dir: Direction = (row_dir as u8 + 2_u8).into();
+
+            for row_pos in CellIter::corner(old_grid, dir) {
+                let mut grid_visitor: Self = Self::default();
+
+                for pos in CellIter::until(old_grid, row_dir, row_pos) {
+                    grid_visitor.visit_cell(
+                        new_grid.get_mut(pos).unwrap(),
+                        old_grid.get(pos).unwrap(),
+                        old_grid,
+                        rev_dir,
+                        pos,
+                    );
+                }
+            }
+        }
+
+        new_grid
     }
 }

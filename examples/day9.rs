@@ -16,7 +16,7 @@ use {
 };
 
 /// Analogous enum to `aoc_2022::Direction`, but specifically for parsing character codes.
-#[repr(usize)]
+#[repr(u8)]
 enum XZDirection {
     /// Analog to `Direction::North`
     Up,
@@ -33,7 +33,7 @@ enum XZDirection {
 
 impl From<XZDirection> for Direction {
     fn from(xz_direction: XZDirection) -> Self {
-        (xz_direction as usize).into()
+        (xz_direction as u8).into()
     }
 }
 
