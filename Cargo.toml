@@ -9,6 +9,7 @@ edition = "2021"
 bitvec = "1.0.1"
 clap = { version = "4.0.29", features = ["derive"] }
 glam = "0.22.0"
+lazy_static = "1.4.0"
 memmap = "0.7.0"
 static_assertions = "1.1.0"
 strum = { version = "0.24.1", features = ["derive"] }
