@@ -426,7 +426,7 @@ impl<'h> AStar for HeightGridAStarAscent<'h> {
     }
 }
 
-// https://en.wikipedia.org/wiki/Breadth-first_search
+/// An implementation of https://en.wikipedia.org/wiki/Breadth-first_search
 trait BreadthFirstSearch: Sized {
     type Vertex: Clone + Debug + Eq + Hash;
 

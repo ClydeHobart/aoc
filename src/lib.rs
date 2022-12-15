@@ -1,5 +1,4 @@
 use {
-    self::cell_iter::*,
     glam::IVec2,
     memmap::Mmap,
     static_assertions::const_assert,
@@ -9,13 +8,16 @@ use {
         io::{Error, ErrorKind, Result as IoResult},
         iter::Peekable,
         mem::transmute,
-        ops::{Deref, DerefMut},
+        ops::{Deref, DerefMut, Range, RangeInclusive},
         str::{from_utf8, Split, Utf8Error},
     },
     strum::{EnumCount, EnumIter, IntoEnumIterator},
 };
 
-pub use {self::direction::*, clap::Parser};
+pub use {
+    self::{cell_iter::*, direction::*},
+    clap::Parser,
+};
 
 /// Arguments for program execution
 ///
@@ -204,13 +206,10 @@ mod direction {
         type Error = ();
 
         fn try_from(value: IVec2) -> Result<Self, Self::Error> {
-            Ok(match value {
-                IVec2::NEG_Y => Self::North,
-                IVec2::X => Self::East,
-                IVec2::Y => Self::South,
-                IVec2::NEG_X => Self::West,
-                _ => Err(())?,
-            })
+            VECS.iter()
+                .position(|vec| *vec == value)
+                .map(|index| (index as u8).into())
+                .ok_or(())
         }
     }
 }
@@ -405,28 +404,27 @@ mod cell_iter {
     use super::*;
 
     pub struct CellIter {
-        dir: Direction,
         curr: IVec2,
         end: IVec2,
+        dir: Direction,
     }
 
     impl CellIter {
-        pub(super) fn corner<T>(grid: &Grid<T>, dir: Direction) -> Self {
+        pub fn corner<T>(grid: &Grid<T>, dir: Direction) -> Self {
             let dir_vec: IVec2 = dir.vec();
             let curr: IVec2 = (-grid.dimensions() * (dir_vec + dir_vec.perp()))
                 .clamp(IVec2::ZERO, grid.max_dimensions());
 
-            Self::until(grid, dir, curr)
+            Self::until_boundary(grid, curr, dir)
         }
 
-        #[inline(always)]
-        pub(super) fn until<T>(grid: &Grid<T>, dir: Direction, curr: IVec2) -> Self {
+        pub fn until_boundary<T>(grid: &Grid<T>, curr: IVec2, dir: Direction) -> Self {
             let dir_vec: IVec2 = dir.vec();
             let end: IVec2 = (curr + dir_vec * grid.dimensions())
                 .clamp(IVec2::ZERO, grid.max_dimensions())
                 + dir_vec;
 
-            Self { dir, curr, end }
+            Self { curr, end, dir }
         }
     }
 
@@ -442,6 +440,64 @@ mod cell_iter {
                 Some(prev)
             } else {
                 None
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    pub enum CellIterFromRangeError {
+        PositionsIdentical,
+        PositionsNotAligned,
+    }
+
+    impl TryFrom<Range<IVec2>> for CellIter {
+        type Error = CellIterFromRangeError;
+
+        fn try_from(Range { start, end }: Range<IVec2>) -> Result<Self, Self::Error> {
+            use CellIterFromRangeError::*;
+
+            let delta: IVec2 = end - start;
+
+            if delta == IVec2::ZERO {
+                Err(PositionsIdentical)
+            } else if delta.x != 0_i32 && delta.y != 0_i32 {
+                Err(PositionsNotAligned)
+            } else {
+                let abs: IVec2 = delta.abs();
+                let dir: Direction = (delta / (abs.x + abs.y)).try_into().unwrap();
+
+                Ok(Self {
+                    curr: start,
+                    end,
+                    dir,
+                })
+            }
+        }
+    }
+
+    impl TryFrom<RangeInclusive<IVec2>> for CellIter {
+        type Error = CellIterFromRangeError;
+
+        fn try_from(range_inclusive: RangeInclusive<IVec2>) -> Result<Self, Self::Error> {
+            use CellIterFromRangeError::*;
+
+            let curr: IVec2 = *range_inclusive.start();
+            let end: IVec2 = *range_inclusive.end();
+            let delta: IVec2 = end - curr;
+
+            if delta == IVec2::ZERO {
+                Err(PositionsIdentical)
+            } else if delta.x != 0_i32 && delta.y != 0_i32 {
+                Err(PositionsNotAligned)
+            } else {
+                let abs: IVec2 = delta.abs();
+                let dir: Direction = (delta / (abs.x + abs.y)).try_into().unwrap();
+
+                Ok(Self {
+                    curr,
+                    end: end + dir.vec(),
+                    dir,
+                })
             }
         }
     }
@@ -496,7 +552,7 @@ pub trait GridVisitor: Default + Sized {
             for row_pos in CellIter::corner(old_grid, dir) {
                 let mut grid_visitor: Self = Self::default();
 
-                for pos in CellIter::until(old_grid, row_dir, row_pos) {
+                for pos in CellIter::until_boundary(old_grid, row_pos, row_dir) {
                     grid_visitor.visit_cell(
                         new_grid.get_mut(pos).unwrap(),
                         old_grid.get(pos).unwrap(),

@@ -211,17 +211,12 @@ impl<'cs, I: Iterator<Item = &'cs Instruction>> Iterator for CpuStateIter<'cs, I
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 #[repr(u8)]
 enum Pixel {
-    Off = b'.' as u8,
-    On = b'#' as u8,
-}
-
-impl Default for Pixel {
-    fn default() -> Self {
-        Self::Off
-    }
+    #[default]
+    Off = b'.',
+    On = b'#',
 }
 
 impl From<CpuState> for Pixel {
