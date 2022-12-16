@@ -567,3 +567,29 @@ pub trait GridVisitor: Default + Sized {
         new_grid
     }
 }
+
+pub fn validate_prefix_and_suffix<'s, E, F: FnOnce(&'s str) -> E>(
+    value: &'s str,
+    prefix: &str,
+    suffix: &str,
+    f: F,
+) -> Result<&'s str, E> {
+    if value.len() >= prefix.len() + suffix.len()
+        && value.get(..prefix.len()).map_or(false, |p| p == prefix)
+        && value
+            .get(value.len() - suffix.len()..)
+            .map_or(false, |s| s == suffix)
+    {
+        Ok(&value[prefix.len()..value.len() - suffix.len()])
+    } else {
+        Err(f(value))
+    }
+}
+
+pub fn validate_prefix<'s, E, F: FnOnce(&'s str) -> E>(
+    value: &'s str,
+    prefix: &str,
+    f: F,
+) -> Result<&'s str, E> {
+    validate_prefix_and_suffix(value, prefix, "", f)
+}
