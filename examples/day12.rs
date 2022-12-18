@@ -3,7 +3,7 @@ use {
     glam::IVec2,
     std::{
         cmp::Ordering,
-        collections::{BinaryHeap, HashSet, VecDeque},
+        collections::{BinaryHeap, HashSet},
         fmt::{Debug, Formatter, Result as FmtResult},
         hash::Hash,
         mem::take,
@@ -423,45 +423,6 @@ impl<'h> AStar for HeightGridAStarAscent<'h> {
 
         shortest_path.predecessor = Some((*from - *to).try_into().unwrap());
         shortest_path.score = cost;
-    }
-}
-
-/// An implementation of https://en.wikipedia.org/wiki/Breadth-first_search
-trait BreadthFirstSearch: Sized {
-    type Vertex: Clone + Debug + Eq + Hash;
-
-    fn start(&self) -> &Self::Vertex;
-    fn is_end(&self, vertex: &Self::Vertex) -> bool;
-    fn path_to(&self, vertex: &Self::Vertex) -> Vec<Self::Vertex>;
-    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>);
-    fn update_parent(&mut self, from: &Self::Vertex, to: &Self::Vertex);
-
-    fn run(mut self) -> Option<Vec<Self::Vertex>> {
-        let mut queue: VecDeque<Self::Vertex> = VecDeque::new();
-        let mut explored: HashSet<Self::Vertex> = HashSet::new();
-
-        let start: Self::Vertex = self.start().clone();
-        explored.insert(start.clone());
-        queue.push_back(start);
-
-        let mut neighbors: Vec<Self::Vertex> = Vec::new();
-
-        while let Some(current) = queue.pop_front() {
-            if self.is_end(&current) {
-                return Some(self.path_to(&current));
-            }
-
-            self.neighbors(&current, &mut neighbors);
-
-            for neighbor in neighbors.drain(..) {
-                if explored.insert(neighbor.clone()) {
-                    self.update_parent(&current, &neighbor);
-                    queue.push_back(neighbor);
-                }
-            }
-        }
-
-        None
     }
 }
 

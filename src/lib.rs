@@ -3,8 +3,10 @@ use {
     memmap::Mmap,
     static_assertions::const_assert,
     std::{
+        collections::{HashSet, VecDeque},
         fmt::{Debug, DebugList, Formatter, Result as FmtResult},
         fs::File,
+        hash::Hash,
         io::{Error, ErrorKind, Result as IoResult},
         iter::Peekable,
         mem::transmute,
@@ -316,6 +318,17 @@ impl<T> Grid<T> {
         self.try_index_from_pos(pos)
             .map(|index: usize| &mut self.cells[index])
     }
+
+    pub fn resize_rows<F: FnMut() -> T>(&mut self, new_row_len: usize, f: F) {
+        self.dimensions.y = new_row_len as i32;
+        self.cells
+            .resize_with((self.dimensions.x * self.dimensions.y) as usize, f);
+    }
+
+    pub fn reserve_rows(&mut self, additional_rows: usize) {
+        self.cells
+            .reserve(self.dimensions.x as usize * additional_rows);
+    }
 }
 
 impl<T: Debug> Debug for Grid<T> {
@@ -592,4 +605,43 @@ pub fn validate_prefix<'s, E, F: FnOnce(&'s str) -> E>(
     f: F,
 ) -> Result<&'s str, E> {
     validate_prefix_and_suffix(value, prefix, "", f)
+}
+
+/// An implementation of https://en.wikipedia.org/wiki/Breadth-first_search
+pub trait BreadthFirstSearch: Sized {
+    type Vertex: Clone + Debug + Eq + Hash;
+
+    fn start(&self) -> &Self::Vertex;
+    fn is_end(&self, vertex: &Self::Vertex) -> bool;
+    fn path_to(&self, vertex: &Self::Vertex) -> Vec<Self::Vertex>;
+    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>);
+    fn update_parent(&mut self, from: &Self::Vertex, to: &Self::Vertex);
+
+    fn run(mut self) -> Option<Vec<Self::Vertex>> {
+        let mut queue: VecDeque<Self::Vertex> = VecDeque::new();
+        let mut explored: HashSet<Self::Vertex> = HashSet::new();
+
+        let start: Self::Vertex = self.start().clone();
+        explored.insert(start.clone());
+        queue.push_back(start);
+
+        let mut neighbors: Vec<Self::Vertex> = Vec::new();
+
+        while let Some(current) = queue.pop_front() {
+            if self.is_end(&current) {
+                return Some(self.path_to(&current));
+            }
+
+            self.neighbors(&current, &mut neighbors);
+
+            for neighbor in neighbors.drain(..) {
+                if explored.insert(neighbor.clone()) {
+                    self.update_parent(&current, &neighbor);
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+
+        None
+    }
 }
