@@ -581,6 +581,20 @@ mod grid_3d {
     }
 
     impl<T> Grid3D<T> {
+        pub fn empty(dimensions: IVec3) -> Self {
+            Self {
+                cells: Vec::new(),
+                dimensions,
+            }
+        }
+
+        pub fn allocate(dimensions: IVec3) -> Self {
+            Self {
+                cells: Vec::with_capacity((dimensions.x * dimensions.y * dimensions.z) as usize),
+                dimensions,
+            }
+        }
+
         #[inline(always)]
         pub fn cells(&self) -> &[T] {
             &self.cells
@@ -682,6 +696,26 @@ mod grid_3d {
             cells.resize_with(capacity, T::default);
 
             Self { cells, dimensions }
+        }
+    }
+
+    impl<T: Debug> Debug for Grid3D<T> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+            let y_layers: Vec<&[T]> = self
+                .cells
+                .chunks_exact(self.dimensions.x as usize)
+                .collect();
+            let z_layers: Vec<&[&[T]]> =
+                y_layers.chunks_exact(self.dimensions.y as usize).collect();
+
+            f.write_str("Grid3D")?;
+            f.debug_list().entries(z_layers.iter()).finish()
+        }
+    }
+
+    impl<T> Default for Grid3D<T> {
+        fn default() -> Self {
+            Self::empty(IVec3::ZERO)
         }
     }
 
