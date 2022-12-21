@@ -58,12 +58,12 @@ impl Scan {
         use {ScanCell::*, ScanGridFromScanError::*};
 
         let mut scan_grid: ScanGrid = ScanGrid {
-            grid: Grid::default(self.max - self.min + IVec2::ONE),
+            grid: Grid2D::default(self.max - self.min + IVec2::ONE),
             source: SAND_SOURCE - self.min,
         };
 
         for line in self.iter_lines() {
-            for pos in CellIter::try_from(line[0_usize]..=line[1_usize]).unwrap() {
+            for pos in CellIter2D::try_from(line[0_usize]..=line[1_usize]).unwrap() {
                 *scan_grid.grid.get_mut(pos - self.min).unwrap() = Rock;
             }
         }
@@ -169,7 +169,7 @@ enum ScanCell {
 
 #[derive(Debug, PartialEq)]
 struct ScanGrid {
-    grid: Grid<ScanCell>,
+    grid: Grid2D<ScanCell>,
     source: IVec2,
 }
 
@@ -506,7 +506,7 @@ mod tests {
         ];
 
         let mut scan_grid: ScanGrid = ScanGrid {
-            grid: Grid::default(SCAN_GRID_DIMENSIONS),
+            grid: Grid2D::default(SCAN_GRID_DIMENSIONS),
             source: IVec2::new(6_i32, 0_i32),
         };
 

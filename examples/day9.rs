@@ -346,7 +346,7 @@ trait HasVisitedGrid {
     fn count_tails(&self) -> usize;
 }
 
-impl<const N: usize> HasVisitedGrid for Grid<HasVisited<N>> {
+impl<const N: usize> HasVisitedGrid for Grid2D<HasVisited<N>> {
     type State = RefCell<RopeState<N>>;
 
     fn visit<I: Iterator<Item = Self::State>>(&mut self, state_iter: I) {
@@ -388,7 +388,8 @@ fn main() {
                         let (initial, dimensions): (IVec2, IVec2) =
                             motion_sequence.compute_initial_and_dimensions();
 
-                        let mut has_visited_grid: Grid<HasVisited<N>> = Grid::default(dimensions);
+                        let mut has_visited_grid: Grid2D<HasVisited<N>> =
+                            Grid2D::default(dimensions);
 
                         has_visited_grid.visit(motion_sequence.iter(initial));
 
@@ -461,8 +462,8 @@ mod tests {
 
     #[test]
     fn test_visit() {
-        let mut has_visited_grid: Grid<HasVisited<N>> =
-            Grid::default(example_initial_and_dimensions().1);
+        let mut has_visited_grid: Grid2D<HasVisited<N>> =
+            Grid2D::default(example_initial_and_dimensions().1);
 
         has_visited_grid.visit(example_states().into_iter().map(RefCell::new));
 
@@ -481,7 +482,7 @@ mod tests {
         let (initial, dimensions): (IVec2, IVec2) =
             motion_sequence.compute_initial_and_dimensions();
 
-        let mut has_visited_grid: Grid<HasVisited<N>> = Grid::default(dimensions);
+        let mut has_visited_grid: Grid2D<HasVisited<N>> = Grid2D::default(dimensions);
 
         has_visited_grid.visit(motion_sequence.iter(initial));
 
@@ -506,7 +507,7 @@ mod tests {
         let (initial, dimensions): (IVec2, IVec2) =
             motion_sequence.compute_initial_and_dimensions();
 
-        let mut has_visited_grid: Grid<HasVisited<N>> = Grid::default(dimensions);
+        let mut has_visited_grid: Grid2D<HasVisited<N>> = Grid2D::default(dimensions);
 
         has_visited_grid.visit(motion_sequence.iter(initial));
 
@@ -578,7 +579,7 @@ mod tests {
         ]
     }
 
-    fn example_has_visited_grid() -> Grid<HasVisited<N>> {
+    fn example_has_visited_grid() -> Grid2D<HasVisited<N>> {
         // `rust_fmt` insists on restructuring this array, so separate constants it is
         const ROW_0: &str = " /XX/ ";
         const ROW_1: &str = " //XX/";
@@ -587,7 +588,7 @@ mod tests {
         const ROW_4: &str = "XXXX/ ";
         const HAS_VISITED_GRID_STRS: [&str; 5_usize] = [ROW_0, ROW_1, ROW_2, ROW_3, ROW_4];
 
-        Grid::try_from_cells_and_width(
+        Grid2D::try_from_cells_and_width(
             HAS_VISITED_GRID_STRS
                 .iter()
                 .map(|s: &&str| s.chars())

@@ -111,7 +111,7 @@ impl GridVisitor for IsVisitableGridVisitor {
         &mut self,
         new: &mut Self::New,
         old: &Self::Old,
-        old_grid: &Grid<Self::Old>,
+        old_grid: &Grid2D<Self::Old>,
         rev_dir: Direction,
         pos: IVec2,
     ) {
@@ -141,8 +141,8 @@ impl Default for ShortestPath {
 
 #[derive(Debug, PartialEq)]
 struct HeightGrid {
-    heights: Grid<HeightCell>,
-    is_visitable: Grid<IsVisitable>,
+    heights: Grid2D<HeightCell>,
+    is_visitable: Grid2D<IsVisitable>,
     start: IVec2,
     end: IVec2,
 }
@@ -160,7 +160,7 @@ impl<'s> TryFrom<&'s str> for HeightGrid {
     fn try_from(height_grid_str: &'s str) -> Result<Self, Self::Error> {
         use HeightGridParseError::*;
 
-        let mut heights: Grid<HeightCell> =
+        let mut heights: Grid2D<HeightCell> =
             height_grid_str.try_into().map_err(FailedToParseGrid)?;
 
         let start: IVec2 = heights.pos_from_index(
@@ -181,7 +181,7 @@ impl<'s> TryFrom<&'s str> for HeightGrid {
         heights.get_mut(start).unwrap().0 = b'a';
         heights.get_mut(end).unwrap().0 = b'z';
 
-        let is_visitable: Grid<IsVisitable> = IsVisitableGridVisitor::visit_grid(&heights);
+        let is_visitable: Grid2D<IsVisitable> = IsVisitableGridVisitor::visit_grid(&heights);
 
         Ok(HeightGrid {
             heights,
@@ -337,13 +337,13 @@ trait AStar: Sized {
 
 struct HeightGridAStarAscent<'h> {
     height_grid: &'h HeightGrid,
-    shortest_paths: Grid<ShortestPath>,
+    shortest_paths: Grid2D<ShortestPath>,
 }
 
 impl<'h> HeightGridAStarAscent<'h> {
     fn new(height_grid: &'h HeightGrid) -> Self {
-        let mut shortest_paths: Grid<ShortestPath> =
-            Grid::default(height_grid.heights.dimensions());
+        let mut shortest_paths: Grid2D<ShortestPath> =
+            Grid2D::default(height_grid.heights.dimensions());
 
         shortest_paths.get_mut(height_grid.start).unwrap().score = 0_usize;
 
@@ -428,14 +428,14 @@ impl<'h> AStar for HeightGridAStarAscent<'h> {
 
 struct HeightGridBreadthFirstSearchDescent<'h> {
     height_grid: &'h HeightGrid,
-    predecessors: Grid<Option<Direction>>,
+    predecessors: Grid2D<Option<Direction>>,
 }
 
 impl<'h> HeightGridBreadthFirstSearchDescent<'h> {
     fn new(height_grid: &'h HeightGrid) -> Self {
         Self {
             height_grid,
-            predecessors: Grid::default(height_grid.heights.dimensions()),
+            predecessors: Grid2D::default(height_grid.heights.dimensions()),
         }
     }
 }
@@ -606,8 +606,8 @@ mod tests {
     }
 
     fn example_height_grid() -> HeightGrid {
-        let mut heights: Grid<HeightCell> = Grid::default(DIMENSIONS);
-        let mut is_visitable: Grid<IsVisitable> = Grid::default(DIMENSIONS);
+        let mut heights: Grid2D<HeightCell> = Grid2D::default(DIMENSIONS);
+        let mut is_visitable: Grid2D<IsVisitable> = Grid2D::default(DIMENSIONS);
 
         for ((height_cell_char, is_visitable_i32), (height_cell, is_visitable)) in vec![
             // Row 0

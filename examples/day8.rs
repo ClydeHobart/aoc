@@ -34,7 +34,7 @@ impl GridVisitor for ComputeIsVisible {
         &mut self,
         new: &mut Self::New,
         old: &Self::Old,
-        old_grid: &Grid<Self::Old>,
+        old_grid: &Grid2D<Self::Old>,
         _rev_dir: Direction,
         pos: IVec2,
     ) {
@@ -50,7 +50,7 @@ trait IsVisibleTrait {
     fn count(&self) -> usize;
 }
 
-impl IsVisibleTrait for Grid<IsVisible> {
+impl IsVisibleTrait for Grid2D<IsVisible> {
     fn count(&self) -> usize {
         self.cells()
             .iter()
@@ -81,7 +81,7 @@ impl GridVisitor for ComputeScenicScore {
         &mut self,
         new: &mut Self::New,
         old: &Self::Old,
-        _old_grid: &Grid<Self::Old>,
+        _old_grid: &Grid2D<Self::Old>,
         _rev_dir: Direction,
         _pos: IVec2,
     ) {
@@ -109,7 +109,7 @@ trait ScenicScoreTrait {
     fn max(&self) -> u32;
 }
 
-impl ScenicScoreTrait for Grid<ScenicScore> {
+impl ScenicScoreTrait for Grid2D<ScenicScore> {
     fn max(&self) -> u32 {
         self.cells()
             .iter()
@@ -129,7 +129,7 @@ fn main() {
         unsafe {
             open_utf8_file(
                 input_file_path,
-                |input: &str| match Grid::<Height>::try_from(input) {
+                |input: &str| match Grid2D::<Height>::try_from(input) {
                     Ok(height_grid) => {
                         println!(
                             "ComputeIsVisible::visit_grid(&height_grid).count() == {}\n\
@@ -161,9 +161,9 @@ fn test() {
         33549\n\
         35390";
 
-    match Grid::<Height>::try_from(HEIGHT_GRID_STR) {
+    match Grid2D::<Height>::try_from(HEIGHT_GRID_STR) {
         Ok(height_grid) => {
-            let is_visible_grid: Grid<IsVisible> = ComputeIsVisible::visit_grid(&height_grid);
+            let is_visible_grid: Grid2D<IsVisible> = ComputeIsVisible::visit_grid(&height_grid);
 
             assert_eq!(
                 is_visible_grid.count(),
@@ -171,7 +171,8 @@ fn test() {
                 "height_grid: {height_grid:#?}\n\nis_visible_grid: {is_visible_grid:#?}"
             );
 
-            let scenic_score_grid: Grid<ScenicScore> = ComputeScenicScore::visit_grid(&height_grid);
+            let scenic_score_grid: Grid2D<ScenicScore> =
+                ComputeScenicScore::visit_grid(&height_grid);
 
             assert_eq!(
                 scenic_score_grid.max(),

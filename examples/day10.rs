@@ -229,7 +229,7 @@ impl From<CpuState> for Pixel {
     }
 }
 
-struct Crt(Grid<Pixel>);
+struct Crt(Grid2D<Pixel>);
 
 impl Crt {
     const WIDTH: usize = 40_usize;
@@ -237,7 +237,7 @@ impl Crt {
     const DIMENSIONS: IVec2 = IVec2::new(Self::WIDTH as i32, Self::HEIGHT as i32);
 
     fn new() -> Self {
-        Self(Grid::default(Self::DIMENSIONS))
+        Self(Grid2D::default(Self::DIMENSIONS))
     }
 
     fn image<'i, I: Iterator<Item = &'i Instruction>>(&mut self, instruction_iter: I) {

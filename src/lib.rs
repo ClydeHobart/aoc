@@ -1,5 +1,5 @@
 use {
-    glam::IVec2,
+    glam::{IVec2, IVec3},
     memmap::Mmap,
     static_assertions::const_assert,
     std::{
@@ -17,7 +17,7 @@ use {
 };
 
 pub use {
-    self::{cell_iter::*, direction::*},
+    self::{direction::*, grid_2d::*, grid_3d::*},
     clap::Parser,
 };
 
@@ -224,206 +224,212 @@ impl From<SideLen> for IVec2 {
     }
 }
 
-pub struct Grid<T> {
-    cells: Vec<T>,
-
-    /// Should only contain unsigned values, but is signed for ease of use for iterating
-    dimensions: IVec2,
+#[derive(Debug)]
+pub enum CellIterFromRangeError {
+    PositionsIdentical,
+    PositionsNotAligned,
 }
 
-impl<T> Grid<T> {
-    pub fn try_from_cells_and_width(cells: Vec<T>, width: usize) -> Option<Self> {
-        let cells_len: usize = cells.len();
-
-        if cells_len % width != 0_usize {
-            None
-        } else {
-            Some(Self {
-                cells,
-                dimensions: IVec2::new(width as i32, (cells_len / width) as i32),
-            })
-        }
-    }
-
-    #[cfg(test)]
-    pub fn empty(dimensions: IVec2) -> Self {
-        Self {
-            cells: Vec::new(),
-            dimensions,
-        }
-    }
-
-    pub fn allocate(dimensions: IVec2) -> Self {
-        Self {
-            cells: Vec::with_capacity((dimensions.x * dimensions.y) as usize),
-            dimensions,
-        }
-    }
-
-    #[inline]
-    pub fn cells(&self) -> &[T] {
-        &self.cells
-    }
-
-    #[inline]
-    pub fn cells_mut(&mut self) -> &mut [T] {
-        &mut self.cells
-    }
-
-    #[inline]
-    pub fn dimensions(&self) -> IVec2 {
-        self.dimensions
-    }
-
-    #[inline]
-    pub fn contains(&self, pos: IVec2) -> bool {
-        pos.cmpge(IVec2::ZERO).all() && pos.cmplt(self.dimensions).all()
-    }
-
-    pub fn is_border(&self, pos: IVec2) -> bool {
-        self.contains(pos)
-            && (pos.cmpeq(IVec2::ZERO).any() || pos.cmpeq(self.max_dimensions()).any())
-    }
-
-    #[inline]
-    pub fn index_from_pos(&self, pos: IVec2) -> usize {
-        pos.y as usize * self.dimensions.x as usize + pos.x as usize
-    }
-
-    pub fn try_index_from_pos(&self, pos: IVec2) -> Option<usize> {
-        if self.contains(pos) {
-            Some(self.index_from_pos(pos))
-        } else {
-            None
-        }
-    }
-
-    pub fn pos_from_index(&self, index: usize) -> IVec2 {
-        let x: usize = self.dimensions.x as usize;
-
-        IVec2::new((index % x) as i32, (index / x) as i32)
-    }
-
-    #[inline(always)]
-    pub fn max_dimensions(&self) -> IVec2 {
-        self.dimensions - IVec2::ONE
-    }
-
-    pub fn get(&self, pos: IVec2) -> Option<&T> {
-        self.try_index_from_pos(pos)
-            .map(|index: usize| &self.cells[index])
-    }
-
-    pub fn get_mut(&mut self, pos: IVec2) -> Option<&mut T> {
-        self.try_index_from_pos(pos)
-            .map(|index: usize| &mut self.cells[index])
-    }
-
-    pub fn resize_rows<F: FnMut() -> T>(&mut self, new_row_len: usize, f: F) {
-        self.dimensions.y = new_row_len as i32;
-        self.cells
-            .resize_with((self.dimensions.x * self.dimensions.y) as usize, f);
-    }
-
-    pub fn reserve_rows(&mut self, additional_rows: usize) {
-        self.cells
-            .reserve(self.dimensions.x as usize * additional_rows);
-    }
-}
-
-impl<T: Debug> Debug for Grid<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        f.write_str("Grid")?;
-        let mut y_list: DebugList = f.debug_list();
-
-        for y in 0_i32..self.dimensions.y {
-            let start: usize = (y * self.dimensions.x) as usize;
-
-            y_list.entry(&&self.cells[start..(start + self.dimensions.x as usize)]);
-        }
-
-        y_list.finish()
-    }
-}
-
-impl<T: Default> Grid<T> {
-    pub fn default(dimensions: IVec2) -> Self {
-        let capacity: usize = (dimensions.x * dimensions.y) as usize;
-        let mut cells: Vec<T> = Vec::with_capacity(capacity);
-
-        cells.resize_with(capacity, T::default);
-
-        Self { cells, dimensions }
-    }
-}
-
-impl<T: PartialEq> PartialEq for Grid<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.dimensions == other.dimensions && self.cells == other.cells
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug, PartialEq)]
-pub enum GridParseError<'s, E> {
-    NoInitialToken,
-    IsNotAscii(&'s str),
-    InvalidLength { line: &'s str, expected_len: usize },
-    CellParseError(E),
-}
-
-impl<'s, E, T: TryFrom<char, Error = E>> TryFrom<&'s str> for Grid<T> {
-    type Error = GridParseError<'s, E>;
-
-    fn try_from(grid_str: &'s str) -> Result<Self, Self::Error> {
-        use GridParseError as Error;
-
-        let mut grid_line_iter: Peekable<Split<char>> = grid_str.split('\n').peekable();
-
-        let side_len: usize = grid_line_iter.peek().ok_or(Error::NoInitialToken)?.len();
-
-        let mut grid: Grid<T> = Grid::allocate(SideLen(side_len).into());
-        let mut lines: usize = 0_usize;
-
-        for grid_line_str in grid_line_iter {
-            if !grid_line_str.is_ascii() {
-                return Err(Error::IsNotAscii(grid_line_str));
-            }
-
-            if grid_line_str.len() != side_len {
-                return Err(Error::InvalidLength {
-                    line: grid_line_str,
-                    expected_len: side_len,
-                });
-            }
-
-            for cell_char in grid_line_str.chars() {
-                grid.cells
-                    .push(cell_char.try_into().map_err(Error::CellParseError)?);
-            }
-
-            lines += 1_usize;
-        }
-
-        if lines != side_len {
-            grid.dimensions.y = lines as i32;
-        }
-
-        Ok(grid)
-    }
-}
-
-mod cell_iter {
+mod grid_2d {
     use super::*;
 
-    pub struct CellIter {
+    pub struct Grid2D<T> {
+        cells: Vec<T>,
+
+        /// Should only contain unsigned values, but is signed for ease of use for iterating
+        dimensions: IVec2,
+    }
+
+    impl<T> Grid2D<T> {
+        pub fn try_from_cells_and_width(cells: Vec<T>, width: usize) -> Option<Self> {
+            let cells_len: usize = cells.len();
+
+            if cells_len % width != 0_usize {
+                None
+            } else {
+                Some(Self {
+                    cells,
+                    dimensions: IVec2::new(width as i32, (cells_len / width) as i32),
+                })
+            }
+        }
+
+        #[cfg(test)]
+        pub fn empty(dimensions: IVec2) -> Self {
+            Self {
+                cells: Vec::new(),
+                dimensions,
+            }
+        }
+
+        pub fn allocate(dimensions: IVec2) -> Self {
+            Self {
+                cells: Vec::with_capacity((dimensions.x * dimensions.y) as usize),
+                dimensions,
+            }
+        }
+
+        #[inline]
+        pub fn cells(&self) -> &[T] {
+            &self.cells
+        }
+
+        #[inline]
+        pub fn cells_mut(&mut self) -> &mut [T] {
+            &mut self.cells
+        }
+
+        #[inline]
+        pub fn dimensions(&self) -> IVec2 {
+            self.dimensions
+        }
+
+        #[inline]
+        pub fn contains(&self, pos: IVec2) -> bool {
+            pos.cmpge(IVec2::ZERO).all() && pos.cmplt(self.dimensions).all()
+        }
+
+        pub fn is_border(&self, pos: IVec2) -> bool {
+            self.contains(pos)
+                && (pos.cmpeq(IVec2::ZERO).any() || pos.cmpeq(self.max_dimensions()).any())
+        }
+
+        #[inline]
+        pub fn index_from_pos(&self, pos: IVec2) -> usize {
+            pos.y as usize * self.dimensions.x as usize + pos.x as usize
+        }
+
+        pub fn try_index_from_pos(&self, pos: IVec2) -> Option<usize> {
+            if self.contains(pos) {
+                Some(self.index_from_pos(pos))
+            } else {
+                None
+            }
+        }
+
+        pub fn pos_from_index(&self, index: usize) -> IVec2 {
+            let x: usize = self.dimensions.x as usize;
+
+            IVec2::new((index % x) as i32, (index / x) as i32)
+        }
+
+        #[inline(always)]
+        pub fn max_dimensions(&self) -> IVec2 {
+            self.dimensions - IVec2::ONE
+        }
+
+        pub fn get(&self, pos: IVec2) -> Option<&T> {
+            self.try_index_from_pos(pos)
+                .map(|index: usize| &self.cells[index])
+        }
+
+        pub fn get_mut(&mut self, pos: IVec2) -> Option<&mut T> {
+            self.try_index_from_pos(pos)
+                .map(|index: usize| &mut self.cells[index])
+        }
+
+        pub fn resize_rows<F: FnMut() -> T>(&mut self, new_row_len: usize, f: F) {
+            self.dimensions.y = new_row_len as i32;
+            self.cells
+                .resize_with((self.dimensions.x * self.dimensions.y) as usize, f);
+        }
+
+        pub fn reserve_rows(&mut self, additional_rows: usize) {
+            self.cells
+                .reserve(self.dimensions.x as usize * additional_rows);
+        }
+    }
+
+    impl<T: Debug> Debug for Grid2D<T> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+            f.write_str("Grid2D")?;
+            let mut y_list: DebugList = f.debug_list();
+
+            for y in 0_i32..self.dimensions.y {
+                let start: usize = (y * self.dimensions.x) as usize;
+
+                y_list.entry(&&self.cells[start..(start + self.dimensions.x as usize)]);
+            }
+
+            y_list.finish()
+        }
+    }
+
+    impl<T: Default> Grid2D<T> {
+        pub fn default(dimensions: IVec2) -> Self {
+            let capacity: usize = (dimensions.x * dimensions.y) as usize;
+            let mut cells: Vec<T> = Vec::with_capacity(capacity);
+
+            cells.resize_with(capacity, T::default);
+
+            Self { cells, dimensions }
+        }
+    }
+
+    impl<T: PartialEq> PartialEq for Grid2D<T> {
+        fn eq(&self, other: &Self) -> bool {
+            self.dimensions == other.dimensions && self.cells == other.cells
+        }
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug, PartialEq)]
+    pub enum GridParseError<'s, E> {
+        NoInitialToken,
+        IsNotAscii(&'s str),
+        InvalidLength { line: &'s str, expected_len: usize },
+        CellParseError(E),
+    }
+
+    impl<'s, E, T: TryFrom<char, Error = E>> TryFrom<&'s str> for Grid2D<T> {
+        type Error = GridParseError<'s, E>;
+
+        fn try_from(grid_str: &'s str) -> Result<Self, Self::Error> {
+            use GridParseError as Error;
+
+            let mut grid_line_iter: Peekable<Split<char>> = grid_str.split('\n').peekable();
+
+            let side_len: usize = grid_line_iter.peek().ok_or(Error::NoInitialToken)?.len();
+
+            let mut grid: Grid2D<T> = Grid2D::allocate(SideLen(side_len).into());
+            let mut lines: usize = 0_usize;
+
+            for grid_line_str in grid_line_iter {
+                if !grid_line_str.is_ascii() {
+                    return Err(Error::IsNotAscii(grid_line_str));
+                }
+
+                if grid_line_str.len() != side_len {
+                    return Err(Error::InvalidLength {
+                        line: grid_line_str,
+                        expected_len: side_len,
+                    });
+                }
+
+                for cell_char in grid_line_str.chars() {
+                    grid.cells
+                        .push(cell_char.try_into().map_err(Error::CellParseError)?);
+                }
+
+                lines += 1_usize;
+            }
+
+            if lines != side_len {
+                grid.dimensions.y = lines as i32;
+            }
+
+            Ok(grid)
+        }
+    }
+
+    pub struct CellIter2D {
         curr: IVec2,
         end: IVec2,
         dir: Direction,
     }
 
-    impl CellIter {
-        pub fn corner<T>(grid: &Grid<T>, dir: Direction) -> Self {
+    impl CellIter2D {
+        pub fn corner<T>(grid: &Grid2D<T>, dir: Direction) -> Self {
             let dir_vec: IVec2 = dir.vec();
             let curr: IVec2 = (-grid.dimensions() * (dir_vec + dir_vec.perp()))
                 .clamp(IVec2::ZERO, grid.max_dimensions());
@@ -431,7 +437,7 @@ mod cell_iter {
             Self::until_boundary(grid, curr, dir)
         }
 
-        pub fn until_boundary<T>(grid: &Grid<T>, curr: IVec2, dir: Direction) -> Self {
+        pub fn until_boundary<T>(grid: &Grid2D<T>, curr: IVec2, dir: Direction) -> Self {
             let dir_vec: IVec2 = dir.vec();
             let end: IVec2 = (curr + dir_vec * grid.dimensions())
                 .clamp(IVec2::ZERO, grid.max_dimensions())
@@ -441,7 +447,7 @@ mod cell_iter {
         }
     }
 
-    impl Iterator for CellIter {
+    impl Iterator for CellIter2D {
         type Item = IVec2;
 
         fn next(&mut self) -> Option<Self::Item> {
@@ -457,13 +463,7 @@ mod cell_iter {
         }
     }
 
-    #[derive(Debug)]
-    pub enum CellIterFromRangeError {
-        PositionsIdentical,
-        PositionsNotAligned,
-    }
-
-    impl TryFrom<Range<IVec2>> for CellIter {
+    impl TryFrom<Range<IVec2>> for CellIter2D {
         type Error = CellIterFromRangeError;
 
         fn try_from(Range { start, end }: Range<IVec2>) -> Result<Self, Self::Error> {
@@ -488,7 +488,7 @@ mod cell_iter {
         }
     }
 
-    impl TryFrom<RangeInclusive<IVec2>> for CellIter {
+    impl TryFrom<RangeInclusive<IVec2>> for CellIter2D {
         type Error = CellIterFromRangeError;
 
         fn try_from(range_inclusive: RangeInclusive<IVec2>) -> Result<Self, Self::Error> {
@@ -521,11 +521,11 @@ mod cell_iter {
 
         #[test]
         fn test_corner() {
-            let grid: Grid<()> = Grid::empty(SideLen(5_usize).into());
+            let grid: Grid2D<()> = Grid2D::empty(SideLen(5_usize).into());
 
             assert_eq!(
                 Direction::iter()
-                    .map(|dir: Direction| -> CellIter { CellIter::corner(&grid, dir) })
+                    .map(|dir: Direction| -> CellIter2D { CellIter2D::corner(&grid, dir) })
                     .flatten()
                     .map(|pos: IVec2| -> usize { grid.index_from_pos(pos) })
                     .collect::<Vec<usize>>(),
@@ -540,6 +540,254 @@ mod cell_iter {
     }
 }
 
+mod grid_3d {
+    use super::*;
+
+    pub struct Grid3D<T> {
+        cells: Vec<T>,
+
+        /// Should only contain unsigned values, but is signed for ease of use for iterating
+        dimensions: IVec3,
+    }
+
+    pub fn manhattan_distance_3d(a: &IVec3, b: &IVec3) -> i32 {
+        let abs_diff: IVec3 = (*b - *a).abs();
+
+        abs_diff.x + abs_diff.y + abs_diff.z
+    }
+
+    pub fn sanitize_dir_3d(dir: &mut IVec3) {
+        let abs: IVec3 = dir.abs();
+
+        if abs.x + abs.y + abs.z != 1_i32 {
+            *dir = if abs == IVec3::ZERO {
+                IVec3::X
+            } else {
+                const POS_AND_NEG_AXES: [IVec3; 6_usize] = [
+                    IVec3::X,
+                    IVec3::NEG_X,
+                    IVec3::Y,
+                    IVec3::NEG_Y,
+                    IVec3::Z,
+                    IVec3::NEG_Z,
+                ];
+
+                *POS_AND_NEG_AXES
+                    .iter()
+                    .min_by_key(|axis| manhattan_distance_3d(*axis, dir))
+                    .unwrap()
+            }
+        }
+    }
+
+    impl<T> Grid3D<T> {
+        #[inline(always)]
+        pub fn cells(&self) -> &[T] {
+            &self.cells
+        }
+
+        #[inline(always)]
+        pub fn cells_mut(&mut self) -> &mut [T] {
+            &mut self.cells
+        }
+
+        #[inline(always)]
+        pub fn dimensions(&self) -> &IVec3 {
+            &self.dimensions
+        }
+
+        #[inline(always)]
+        pub fn contains(&self, pos: &IVec3) -> bool {
+            pos.cmpge(IVec3::ZERO).all() && pos.cmplt(self.dimensions).all()
+        }
+
+        pub fn is_border(&self, pos: &IVec3) -> bool {
+            self.contains(pos)
+                && (pos.cmpeq(IVec3::ZERO).any() || pos.cmpeq(self.max_dimensions()).any())
+        }
+
+        pub fn index_from_pos(&self, pos: &IVec3) -> usize {
+            let [width, height, _] = self.width_height_depth();
+
+            pos.z as usize * width * height + pos.y as usize * width + pos.x as usize
+        }
+
+        pub fn try_index_from_pos(&self, pos: &IVec3) -> Option<usize> {
+            if self.contains(pos) {
+                Some(self.index_from_pos(pos))
+            } else {
+                None
+            }
+        }
+
+        pub fn pos_from_index(&self, mut index: usize) -> IVec3 {
+            let [width, height, _] = self.width_height_depth();
+            let width_height_product: usize = width * height;
+            let z: i32 = (index / width_height_product) as i32;
+
+            index %= width_height_product;
+
+            let y: i32 = (index / width) as i32;
+
+            index %= width;
+
+            let x: i32 = index as i32;
+
+            IVec3 { x, y, z }
+        }
+
+        #[inline(always)]
+        pub fn max_dimensions(&self) -> IVec3 {
+            self.dimensions - IVec3::ONE
+        }
+
+        pub fn get(&self, pos: &IVec3) -> Option<&T> {
+            self.try_index_from_pos(pos)
+                .map(|index: usize| &self.cells[index])
+        }
+
+        pub fn get_mut(&mut self, pos: &IVec3) -> Option<&mut T> {
+            self.try_index_from_pos(pos)
+                .map(|index: usize| &mut self.cells[index])
+        }
+
+        pub fn resize_layers<F: FnMut() -> T>(&mut self, new_layer_len: usize, f: F) {
+            self.dimensions.z = new_layer_len as i32;
+            self.cells.resize_with(
+                (self.dimensions.x * self.dimensions.y * self.dimensions.z) as usize,
+                f,
+            );
+        }
+
+        pub fn reserve_layers(&mut self, additional_layers: usize) {
+            self.cells
+                .reserve((self.dimensions.x * self.dimensions.y) as usize * additional_layers);
+        }
+
+        #[inline(always)]
+        fn width_height_depth(&self) -> [usize; 3_usize] {
+            [
+                self.dimensions.x as usize,
+                self.dimensions.y as usize,
+                self.dimensions.z as usize,
+            ]
+        }
+    }
+
+    impl<T: Default> Grid3D<T> {
+        pub fn default(dimensions: IVec3) -> Self {
+            let capacity: usize = (dimensions.x * dimensions.y * dimensions.z) as usize;
+            let mut cells: Vec<T> = Vec::with_capacity(capacity);
+
+            cells.resize_with(capacity, T::default);
+
+            Self { cells, dimensions }
+        }
+    }
+
+    impl<T: PartialEq> PartialEq for Grid3D<T> {
+        fn eq(&self, other: &Self) -> bool {
+            self.dimensions == other.dimensions && self.cells == other.cells
+        }
+    }
+
+    pub struct CellIter3D {
+        curr: IVec3,
+        end: IVec3,
+        dir: IVec3,
+    }
+
+    impl CellIter3D {
+        pub fn until_boundary<T>(grid: &Grid3D<T>, curr: IVec3, mut dir: IVec3) -> Self {
+            sanitize_dir_3d(&mut dir);
+
+            let end: IVec3 =
+                (curr + dir * *grid.dimensions()).clamp(IVec3::ZERO, grid.max_dimensions()) + dir;
+
+            Self { curr, end, dir }
+        }
+
+        pub fn until_boundary_from_dimensions(
+            dimensions: &IVec3,
+            curr: IVec3,
+            mut dir: IVec3,
+        ) -> Self {
+            sanitize_dir_3d(&mut dir);
+
+            let end: IVec3 =
+                (curr + dir * *dimensions).clamp(IVec3::ZERO, *dimensions - IVec3::ONE) + dir;
+
+            Self { curr, end, dir }
+        }
+    }
+
+    impl Iterator for CellIter3D {
+        type Item = IVec3;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.curr != self.end {
+                let prev: IVec3 = self.curr;
+
+                self.curr += self.dir;
+
+                Some(prev)
+            } else {
+                None
+            }
+        }
+    }
+
+    impl TryFrom<Range<IVec3>> for CellIter3D {
+        type Error = CellIterFromRangeError;
+
+        fn try_from(Range { start, end }: Range<IVec3>) -> Result<Self, Self::Error> {
+            use CellIterFromRangeError::*;
+
+            let delta: IVec3 = end - start;
+
+            if delta == IVec3::ZERO {
+                Err(PositionsIdentical)
+            } else if delta.cmpeq(IVec3::ZERO).bitmask().count_ones() != 2_u32 {
+                Err(PositionsNotAligned)
+            } else {
+                let dir: IVec3 = delta / manhattan_distance_3d(&start, &end);
+
+                Ok(Self {
+                    curr: start,
+                    end,
+                    dir,
+                })
+            }
+        }
+    }
+
+    impl TryFrom<RangeInclusive<IVec3>> for CellIter3D {
+        type Error = CellIterFromRangeError;
+
+        fn try_from(range_inclusive: RangeInclusive<IVec3>) -> Result<Self, Self::Error> {
+            use CellIterFromRangeError::*;
+
+            let curr: IVec3 = *range_inclusive.start();
+            let end: IVec3 = *range_inclusive.end();
+            let delta: IVec3 = end - curr;
+
+            if delta == IVec3::ZERO {
+                Err(PositionsIdentical)
+            } else if delta.cmpeq(IVec3::ZERO).bitmask().count_ones() != 2_u32 {
+                Err(PositionsNotAligned)
+            } else {
+                let dir: IVec3 = delta / manhattan_distance_3d(&curr, &end);
+
+                Ok(Self {
+                    curr,
+                    end: end + dir,
+                    dir,
+                })
+            }
+        }
+    }
+}
+
 pub trait GridVisitor: Default + Sized {
     type Old;
     type New: Default;
@@ -548,13 +796,13 @@ pub trait GridVisitor: Default + Sized {
         &mut self,
         new: &mut Self::New,
         old: &Self::Old,
-        old_grid: &Grid<Self::Old>,
+        old_grid: &Grid2D<Self::Old>,
         rev_dir: Direction,
         pos: IVec2,
     );
 
-    fn visit_grid(old_grid: &Grid<Self::Old>) -> Grid<Self::New> {
-        let mut new_grid: Grid<Self::New> = Grid::default(old_grid.dimensions());
+    fn visit_grid(old_grid: &Grid2D<Self::Old>) -> Grid2D<Self::New> {
+        let mut new_grid: Grid2D<Self::New> = Grid2D::default(old_grid.dimensions());
 
         for dir in Direction::iter() {
             let row_dir: Direction = dir.next();
@@ -562,10 +810,10 @@ pub trait GridVisitor: Default + Sized {
             // Look back the way we came to make the most use of the local `GridVisitor`
             let rev_dir: Direction = (row_dir as u8 + 2_u8).into();
 
-            for row_pos in CellIter::corner(old_grid, dir) {
+            for row_pos in CellIter2D::corner(old_grid, dir) {
                 let mut grid_visitor: Self = Self::default();
 
-                for pos in CellIter::until_boundary(old_grid, row_pos, row_dir) {
+                for pos in CellIter2D::until_boundary(old_grid, row_pos, row_dir) {
                     grid_visitor.visit_cell(
                         new_grid.get_mut(pos).unwrap(),
                         old_grid.get(pos).unwrap(),
