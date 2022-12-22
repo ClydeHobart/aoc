@@ -31,6 +31,10 @@ pub struct Args {
     /// Input file path
     #[arg(short, long, default_value_t)]
     input_file_path: String,
+
+    /// Print extra information, if there is any
+    #[arg(short, long, default_value_t)]
+    pub verbose: bool,
 }
 
 impl Args {
