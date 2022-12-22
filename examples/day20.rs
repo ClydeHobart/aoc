@@ -1,38 +1,20 @@
 use {
     aoc_2022::*,
-    std::{cmp::Ordering, num::ParseIntError, str::FromStr},
+    std::{num::ParseIntError, str::FromStr},
 };
 
 #[cfg(test)]
 #[macro_use]
 extern crate lazy_static;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct ListElement {
     number: i64,
     next_index: u32,
     prev_index: u32,
 }
 
-impl ListElement {
-    fn prev_index(self) -> u32 {
-        self.prev_index
-    }
-
-    fn next_index(self) -> u32 {
-        self.next_index
-    }
-
-    fn prev_index_mut(&mut self) -> &mut u32 {
-        &mut self.prev_index
-    }
-
-    fn next_index_mut(&mut self) -> &mut u32 {
-        &mut self.next_index
-    }
-}
-
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct EncryptedFile {
     list: Vec<ListElement>,
     zero: usize,
@@ -40,71 +22,47 @@ struct EncryptedFile {
 }
 
 impl EncryptedFile {
-    fn mix(&mut self) {
-        for index in 0_usize..self.list.len() {
-            // Moving one number is equivalent to keeping it stationary while rotation the
-            // remaining `self.list.len() - 1_usize` elements, so the period is `self.list.len() -
-            // 1_usize`, not `self.list.len()`
-            let number: i64 = self.list[index].number % self.modulo_divisor;
+    fn apply_decryption_key(&mut self, decryption_key: i64) -> &mut Self {
+        for list_element in self.list.iter_mut() {
+            list_element.number *= decryption_key;
+        }
 
-            match number.cmp(&0_i64) {
-                Ordering::Less => {
-                    self.mix_index_and_number(
-                        index,
-                        number,
-                        ListElement::prev_index,
-                        ListElement::next_index,
-                        ListElement::prev_index_mut,
-                        ListElement::next_index_mut,
-                    );
-                }
-                Ordering::Equal => {}
-                Ordering::Greater => {
-                    self.mix_index_and_number(
-                        index,
-                        number,
-                        ListElement::next_index,
-                        ListElement::prev_index,
-                        ListElement::next_index_mut,
-                        ListElement::prev_index_mut,
-                    );
+        self
+    }
+
+    fn mix(&mut self, rounds: usize) -> &mut Self {
+        for _ in 0_usize..rounds {
+            for index_1 in 0_usize..self.list.len() {
+                // Moving one number is equivalent to keeping it stationary while rotation the
+                // remaining `self.list.len() - 1_usize` elements, so the period is `self.list.len() -
+                // 1_usize`, not `self.list.len()`
+                let number: i64 = self.list[index_1].number.rem_euclid(self.modulo_divisor);
+
+                if number != 0_i64 {
+                    let mut index_2: usize = index_1;
+
+                    for _ in 0_i64..number {
+                        index_2 = self.list[index_2].next_index as usize;
+                    }
+
+                    let index_1_next: usize = self.list[index_1].next_index as usize;
+                    let index_1_prev: usize = self.list[index_1].prev_index as usize;
+                    let index_2_next: usize = self.list[index_2].next_index as usize;
+
+                    self.set_neighbors(index_1_prev, index_1_next);
+                    self.set_neighbors(index_2, index_1);
+                    self.set_neighbors(index_1, index_2_next);
                 }
             }
         }
+
+        self
     }
 
-    fn mix_index_and_number<
-        N: Fn(ListElement) -> u32,
-        P: Fn(ListElement) -> u32,
-        NM: Fn(&mut ListElement) -> &mut u32,
-        PM: Fn(&mut ListElement) -> &mut u32,
-    >(
-        &mut self,
-        index_1: usize,
-        number: i64,
-        next_index: N,
-        prev_index: P,
-        next_index_mut: NM,
-        prev_index_mut: PM,
-    ) {
-        let mut index_2: usize = index_1;
-
-        for _ in 0_i64..number.abs() {
-            index_2 = next_index(self.list[index_2]) as usize;
-        }
-
-        let index_1_next: usize = next_index(self.list[index_1]) as usize;
-        let index_1_prev: usize = prev_index(self.list[index_1]) as usize;
-        let index_2_next: usize = next_index(self.list[index_2]) as usize;
-
-        let mut set_neighbors = |prev_index: usize, next_index: usize| {
-            *next_index_mut(&mut self.list[prev_index]) = next_index as u32;
-            *prev_index_mut(&mut self.list[next_index]) = prev_index as u32;
-        };
-
-        set_neighbors(index_1_prev, index_1_next);
-        set_neighbors(index_2, index_1);
-        set_neighbors(index_1, index_2_next);
+    #[inline(always)]
+    fn set_neighbors(&mut self, prev_index: usize, next_index: usize) {
+        self.list[prev_index].next_index = next_index as u32;
+        self.list[next_index].prev_index = prev_index as u32;
     }
 
     fn grove_coordinates(&self, delta: usize) -> [i64; 3_usize] {
@@ -124,12 +82,6 @@ impl EncryptedFile {
 
     fn grove_coordinates_sum(&self, delta: usize) -> i64 {
         self.grove_coordinates(delta).into_iter().sum()
-    }
-
-    fn grove_coordinates_sum_after_mixing(&mut self, delta: usize) -> i64 {
-        self.mix();
-
-        self.grove_coordinates_sum(delta)
     }
 }
 
@@ -197,6 +149,8 @@ impl TryFrom<&str> for EncryptedFile {
 }
 
 const DELTA: usize = 1_000_usize;
+const DECRYPTION_KEY: i64 = 811_589_153_i64;
+const ROUNDS: usize = 10_usize;
 
 fn main() {
     let args: Args = Args::parse();
@@ -210,7 +164,14 @@ fn main() {
                 input_file_path,
                 |input: &str| match EncryptedFile::try_from(input) {
                     Ok(mut encrypted_file) => {
-                        dbg!(encrypted_file.grove_coordinates_sum_after_mixing(DELTA));
+                        dbg!(encrypted_file
+                            .clone()
+                            .mix(1_usize)
+                            .grove_coordinates_sum(DELTA));
+                        dbg!(encrypted_file
+                            .apply_decryption_key(DECRYPTION_KEY)
+                            .mix(ROUNDS)
+                            .grove_coordinates_sum(DELTA));
                     }
                     Err(error) => {
                         panic!("{error:#?}")
@@ -256,9 +217,9 @@ mod tests {
     fn test_encrypted_file_mix() {
         let mut encrypted_file: EncryptedFile = encrypted_file();
 
-        encrypted_file.mix();
+        encrypted_file.mix(1_usize);
 
-        assert_eq!(encrypted_file, *ENCRYPTED_FILE_MIXED);
+        assert_eq!(encrypted_file.mix(1_usize), *ENCRYPTED_FILE_MIXED);
     }
 
     #[test]
@@ -272,10 +233,6 @@ mod tests {
     #[test]
     fn test_encrypted_file_grove_coordinates_sum() {
         assert_eq!(ENCRYPTED_FILE_MIXED.grove_coordinates_sum(DELTA), 3_i64);
-        assert_eq!(
-            encrypted_file().grove_coordinates_sum_after_mixing(DELTA),
-            3_i64
-        );
     }
 
     fn encrypted_file() -> EncryptedFile {
