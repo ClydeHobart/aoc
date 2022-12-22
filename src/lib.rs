@@ -4,10 +4,10 @@ use {
     static_assertions::const_assert,
     std::{
         collections::{HashSet, VecDeque},
-        fmt::{Debug, DebugList, Formatter, Result as FmtResult},
+        fmt::{Debug, DebugList, Error as FmtError, Formatter, Result as FmtResult, Write},
         fs::File,
         hash::Hash,
-        io::{Error, ErrorKind, Result as IoResult},
+        io::{Error as IoError, ErrorKind, Result as IoResult},
         iter::Peekable,
         mem::transmute,
         ops::{Deref, DerefMut, Range, RangeInclusive},
@@ -92,8 +92,8 @@ pub unsafe fn open_utf8_file<F: FnOnce(&str)>(file_path: &str, f: F) -> IoResult
     // SAFETY: This operation is unsafe
     let mmap: Mmap = Mmap::map(&file)?;
     let bytes: &[u8] = &mmap;
-    let utf8_str: &str = from_utf8(bytes).map_err(|utf8_error: Utf8Error| -> Error {
-        Error::new(ErrorKind::InvalidData, utf8_error)
+    let utf8_str: &str = from_utf8(bytes).map_err(|utf8_error: Utf8Error| -> IoError {
+        IoError::new(ErrorKind::InvalidData, utf8_error)
     })?;
 
     f(utf8_str);
@@ -186,6 +186,24 @@ mod direction {
             Self::from_u8(self as u8 + 1_u8)
         }
 
+        #[inline]
+        pub const fn rev(self) -> Self {
+            Self::from_u8(self as u8 + 2_u8)
+        }
+
+        #[inline]
+        pub const fn prev(self) -> Self {
+            Self::from_u8(self as u8 + 3_u8)
+        }
+
+        pub const fn turn(self, left: bool) -> Self {
+            if left {
+                self.prev()
+            } else {
+                self.next()
+            }
+        }
+
         const fn vec_internal(self) -> IVec2 {
             match self {
                 Self::North => IVec2::NEG_Y,
@@ -236,6 +254,12 @@ pub enum CellIterFromRangeError {
 
 mod grid_2d {
     use super::*;
+
+    pub fn abs_sum_2d(pos: IVec2) -> i32 {
+        let abs: IVec2 = pos.abs();
+
+        abs.x + abs.y
+    }
 
     pub struct Grid2D<T> {
         cells: Vec<T>,
@@ -341,6 +365,15 @@ mod grid_2d {
         pub fn reserve_rows(&mut self, additional_rows: usize) {
             self.cells
                 .reserve(self.dimensions.x as usize * additional_rows);
+        }
+    }
+
+    impl<T: Clone> Clone for Grid2D<T> {
+        fn clone(&self) -> Self {
+            Self {
+                cells: self.cells.clone(),
+                dimensions: self.dimensions,
+            }
         }
     }
 
@@ -516,6 +549,53 @@ mod grid_2d {
                     dir,
                 })
             }
+        }
+    }
+
+    pub struct Grid2DString(Grid2D<u8>);
+
+    impl Grid2DString {
+        pub fn grid(&self) -> &Grid2D<u8> {
+            &self.0
+        }
+
+        pub fn grid_mut(&mut self) -> &mut Grid2D<u8> {
+            &mut self.0
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub enum Grid2DStringError {
+        Utf8Error(Utf8Error),
+        FmtError(FmtError),
+    }
+
+    pub type Grid2DStringResult = Result<String, Grid2DStringError>;
+
+    impl Grid2DString {
+        pub fn try_as_string(&self) -> Grid2DStringResult {
+            use Grid2DStringError as Error;
+
+            let dimensions: IVec2 = self.0.dimensions;
+            let width: usize = dimensions.x as usize;
+            let height: usize = dimensions.y as usize;
+            let bytes: &[u8] = &self.0.cells;
+
+            let mut string: String = String::with_capacity((width + 1_usize) * height);
+
+            for y in 0_usize..height {
+                let start: usize = y * width;
+                let end: usize = start + width;
+
+                write!(
+                    &mut string,
+                    "{}\n",
+                    from_utf8(&bytes[start..end]).map_err(Error::Utf8Error)?
+                )
+                .map_err(Error::FmtError)?;
+            }
+
+            Ok(string)
         }
     }
 
