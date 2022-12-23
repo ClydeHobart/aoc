@@ -103,9 +103,9 @@ impl Masks {
 
 /// A representation of the Elves in 2D space
 ///
-/// To make checking with the masks easier, only the outer bits of the `u64`s overlap between
-/// adjacent cells. Consider the following scenario for a given row consisting of two `u64`s (the
-/// numbers indicate the x position that that bit represents):
+/// To make checking with the masks easier, the outer bits of the `u64`s overlap between adjacent
+/// cells. Consider the following scenario for a given row consisting of two `u64`s (the numbers
+/// indicate the x position that that bit represents):
 ///
 /// `[-1, 0, 1, 2, ..., 59, 60, 61, 62], [61, 62, 63, 64, ..., 121, 122, 123, 124]`
 #[derive(Clone, PartialEq)]
