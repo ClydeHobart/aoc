@@ -168,7 +168,7 @@ mod direction {
     const_assert!(Direction::COUNT == 4_usize);
 
     impl Direction {
-        const U8_MASK: u8 = Self::COUNT as u8 - 1_u8;
+        pub const U8_MASK: u8 = Self::COUNT as u8 - 1_u8;
 
         #[inline]
         pub const fn vec(self) -> IVec2 {
