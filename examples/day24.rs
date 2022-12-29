@@ -1,5 +1,3 @@
-use std::{borrow::BorrowMut, cell::RefMut};
-
 use {
     aoc_2022::*,
     glam::{IVec2, IVec3, Vec3Swizzles},
@@ -435,6 +433,7 @@ impl BlizzardGrid3D {
         }
     }
 
+    #[cfg(test)]
     fn get_blizzard_grid_2d_at_time(&self, time: usize) -> BlizzardGrid2D {
         let ns_dimensions: IVec3 = *self.north_south.dimensions();
         let ns_time: usize = time % ns_dimensions.z as usize;
@@ -484,6 +483,7 @@ impl BlizzardGrid3D {
         blizzard_grid_2d
     }
 
+    #[cfg(test)]
     fn try_as_string_at_time(&self, time: usize) -> Grid2DStringResult {
         Grid2DString::from(self.get_blizzard_grid_2d_at_time(time)).try_as_string()
     }
