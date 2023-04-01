@@ -1,5 +1,5 @@
 use {
-    aoc_2022::*,
+    aoc::*,
     glam::IVec2,
     std::{
         mem::{size_of, transmute},

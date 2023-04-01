@@ -1,5 +1,5 @@
 use {
-    aoc_2022::*,
+    aoc::*,
     std::{
         cmp::Ordering,
         iter::Peekable,

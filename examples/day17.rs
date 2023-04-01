@@ -1,5 +1,5 @@
 use {
-    aoc_2022::*,
+    aoc::*,
     num::integer::lcm,
     std::{collections::VecDeque, mem::transmute},
     strum::EnumCount,

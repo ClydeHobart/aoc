@@ -1,5 +1,5 @@
 use {
-    aoc_2022::*,
+    aoc::*,
     std::{
         collections::HashMap,
         fmt::{Debug, Formatter, Result as FmtResult},

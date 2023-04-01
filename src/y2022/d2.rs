@@ -1,5 +1,5 @@
 use {
-    aoc_2022::*,
+    crate::*,
     std::{cmp::Ordering, convert::TryFrom, mem::transmute, str::Chars},
 };
 
@@ -249,61 +249,45 @@ impl Round {
     }
 }
 
-/// Iterate over the rounds of an input string slice, using a specified function to parse string
-/// slice lines
-///
-/// # Arguments
-///
-/// * `input` - The input string slice to parse rounds from and iterate over, with individual rounds
-///   delineated by `'\n'`
-/// * `f` - The function used to parse individual rounds from `input`
-fn iter_rounds<'a, F: for<'b> Fn(&'b str) -> Option<Round> + 'a>(
-    input: &'a str,
-    f: F,
-) -> impl Iterator<Item = Round> + '_ {
-    input.split('\n').filter_map(f)
+pub struct Solution(String);
+
+impl Solution {
+    fn total_score<F: for<'a> Fn(&'a str) -> Option<Round>>(&self, f: F) -> u32 {
+        self.0.split('\n').filter_map(f).map(Round::score).sum()
+    }
+
+    fn total_score_from_opponent_and_response(&self) -> u32 {
+        self.total_score(Round::try_from_opponent_and_response)
+    }
+
+    fn total_score_from_opponent_and_outcome(&self) -> u32 {
+        self.total_score(Round::try_from_opponent_and_outcome)
+    }
 }
 
-/// Sum the total score of all rounds of an input string slice, using a specified function to parse
-/// string slice lines
-///
-/// # Arguments
-///
-/// * `input` - The input string slice to sum the round scores of, with individual rounds
-///   delineated by `'\n'`
-/// * `f` - The function used to parse individual rounds from `input`
-fn total_score<F: for<'a> Fn(&'a str) -> Option<Round>>(input: &str, f: F) -> u32 {
-    iter_rounds(input, f).map(Round::score).sum()
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.total_score_from_opponent_and_response());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.total_score_from_opponent_and_outcome());
+    }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day2.txt");
+impl TryFrom<&str> for Solution {
+    type Error = ();
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                println!(
-                    "total_score(input, Round::try_from_opponent_and_response) == {}\n\
-                    total_score(input, Round::try_from_opponent_and_outcome) == {}",
-                    total_score(input, Round::try_from_opponent_and_response),
-                    total_score(input, Round::try_from_opponent_and_outcome)
-                );
-            })
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(Solution(value.into()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ROUNDS_STR: &str = "A Y\nB X\nC Z";
 
     #[test]
     /// Verify that `Rps::cmp` does the math correctly
@@ -326,6 +310,26 @@ mod tests {
             Scissors Less    Rock,
             Scissors Greater Paper,
             Scissors Equal   Scissors,
+        );
+    }
+
+    #[test]
+    fn test_total_score_from_opponent_and_response() {
+        assert_eq!(
+            Solution::try_from(ROUNDS_STR)
+                .unwrap()
+                .total_score_from_opponent_and_response(),
+            15
+        );
+    }
+
+    #[test]
+    fn test_total_score_from_opponent_and_outcome() {
+        assert_eq!(
+            Solution::try_from(ROUNDS_STR)
+                .unwrap()
+                .total_score_from_opponent_and_outcome(),
+            12
         );
     }
 }

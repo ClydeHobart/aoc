@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use {
-    aoc_2022::*,
+    aoc::*,
     std::fmt::{Debug, Formatter, Result as FmtResult},
 };
 

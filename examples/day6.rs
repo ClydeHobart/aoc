@@ -1,4 +1,4 @@
-use {aoc_2022::*, std::collections::VecDeque};
+use {aoc::*, std::collections::VecDeque};
 
 #[derive(Default)]
 struct ProcessState {

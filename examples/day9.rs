@@ -1,5 +1,5 @@
 use {
-    aoc_2022::*,
+    aoc::*,
     bitvec::prelude::*,
     glam::IVec2,
     std::{
@@ -14,7 +14,7 @@ use {
     },
 };
 
-/// Analogous enum to `aoc_2022::Direction`, but specifically for parsing character codes.
+/// Analogous enum to `aoc::Direction`, but specifically for parsing character codes.
 #[repr(u8)]
 enum XZDirection {
     /// Analog to `Direction::North`

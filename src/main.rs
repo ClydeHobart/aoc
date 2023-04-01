@@ -1,3 +1,5 @@
+use {aoc::*, clap::Parser};
+
 fn main() {
-    println!("Hello, world!");
+    SOLUTIONS.run(&Args::parse());
 }

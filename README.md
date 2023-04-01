@@ -1,4 +1,4 @@
-# aoc_2022
+# aoc
 
 This repository is for my solutions to the Advent of Code 2022 problems. Each day has its own example executable.
 

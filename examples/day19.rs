@@ -1,6 +1,6 @@
 use {
     self::MaterialType::*,
-    aoc_2022::*,
+    aoc::*,
     rayon::prelude::*,
     std::{
         collections::HashMap,

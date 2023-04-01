@@ -1,5 +1,5 @@
 use {
-    aoc_2022::*,
+    crate::*,
     std::{
         num::ParseIntError,
         ops::RangeInclusive,
@@ -279,3 +279,5 @@ fn main() {
         );
     }
 }
+
+pub struct Solution {}

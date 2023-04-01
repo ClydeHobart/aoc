@@ -1,5 +1,5 @@
 use {
-    aoc_2022::*,
+    aoc::*,
     glam::{BVec4, IVec3},
     std::{
         fmt::{Debug, Formatter, Result as FmtResult},

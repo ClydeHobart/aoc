@@ -1,7 +1,7 @@
 use file_descriptor::FileDescriptor;
 
 use {
-    aoc_2022::*,
+    aoc::*,
     std::{
         fmt::{Debug, DebugStruct, Formatter, Result as FmtResult},
         iter::Peekable,

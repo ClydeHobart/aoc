@@ -1,5 +1,5 @@
 use {
-    aoc_2022::*,
+    aoc::*,
     glam::{IVec2, IVec3, Vec3Swizzles},
     std::{
         collections::HashMap,

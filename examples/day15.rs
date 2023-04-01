@@ -1,6 +1,6 @@
 use {
     self::quad_tree::*,
-    aoc_2022::*,
+    aoc::*,
     glam::IVec2,
     std::{
         iter::Peekable,
