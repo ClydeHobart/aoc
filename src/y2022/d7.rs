@@ -1,7 +1,6 @@
-use file_descriptor::FileDescriptor;
-
 use {
-    aoc::*,
+    self::{file_descriptor::*, file_system::*},
+    crate::*,
     std::{
         fmt::{Debug, DebugStruct, Formatter, Result as FmtResult},
         iter::Peekable,
@@ -722,12 +721,17 @@ mod file_system {
     }
 }
 
-fn sum_directory_sizes_at_most_n<'s>(file_system: &file_system::FileSystem<'s>, n: usize) -> usize {
-    file_system
-        .0
-        .iter()
-        .filter_map(
-            |file_descriptor: &file_descriptor::FileDescriptor| -> Option<usize> {
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(String);
+
+impl Solution {
+    fn sum_directory_sizes_at_most_n(&self, n: usize) -> usize {
+        let file_system: FileSystem = parse(&self.0).unwrap();
+
+        file_system
+            .0
+            .iter()
+            .filter_map(|file_descriptor: &FileDescriptor| -> Option<usize> {
                 if file_descriptor.is_directory() {
                     match file_descriptor.get_size() {
                         Some(size) if size <= n => Some(size),
@@ -736,30 +740,30 @@ fn sum_directory_sizes_at_most_n<'s>(file_system: &file_system::FileSystem<'s>, 
                 } else {
                     None
                 }
-            },
-        )
-        .sum()
-}
+            })
+            .sum()
+    }
 
-fn smallest_directory_size_to_free_n<'s>(
-    file_system: &file_system::FileSystem<'s>,
-    n: usize,
-    total: usize,
-) -> usize {
-    let unused: usize = match file_system.0.first().and_then(FileDescriptor::get_size) {
-        Some(used) => total - used,
-        None => {
-            // There's no information, so the disk must be empty?
-            return 0_usize;
-        }
-    };
-    let enough: usize = n - unused;
+    fn sum_directory_sizes_at_most_100k(&self) -> usize {
+        self.sum_directory_sizes_at_most_n(100_000_usize)
+    }
 
-    file_system
-        .0
-        .iter()
-        .filter_map(
-            |file_descriptor: &file_descriptor::FileDescriptor| -> Option<usize> {
+    fn smallest_directory_size_to_free_n(&self, n: usize, total: usize) -> usize {
+        let file_system: FileSystem = parse(&self.0).unwrap();
+
+        let unused: usize = match file_system.0.first().and_then(FileDescriptor::get_size) {
+            Some(used) => total - used,
+            None => {
+                // There's no information, so the disk must be empty?
+                return 0_usize;
+            }
+        };
+        let enough: usize = n - unused;
+
+        file_system
+            .0
+            .iter()
+            .filter_map(|file_descriptor: &FileDescriptor| -> Option<usize> {
                 if file_descriptor.is_directory() {
                     match file_descriptor.get_size() {
                         Some(size) if size >= enough => Some(size),
@@ -768,51 +772,40 @@ fn smallest_directory_size_to_free_n<'s>(
                 } else {
                     None
                 }
-            },
-        )
-        .min()
-        .unwrap()
-}
-
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day7.txt");
-
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                match file_system::parse(input) {
-                    Some(file_system) => {
-                        println!(
-                            "sum_directory_sizes_at_most_n == {}\n\
-                            smallest_directory_size_to_free_n == {}",
-                            sum_directory_sizes_at_most_n(&file_system, 100_000_usize),
-                            smallest_directory_size_to_free_n(
-                                &file_system,
-                                30_000_000_usize,
-                                70_000_000_usize
-                            )
-                        );
-                    }
-                    None => {
-                        panic!();
-                    }
-                }
             })
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+            .min()
+            .unwrap()
+    }
+
+    fn smallest_directory_size_to_free_30m_of_70m(&self) -> usize {
+        self.smallest_directory_size_to_free_n(30_000_000_usize, 70_000_000_usize)
     }
 }
 
-#[test]
-fn test() {
-    use super::{file_descriptor::*, file_system::*, *};
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.sum_directory_sizes_at_most_100k());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.smallest_directory_size_to_free_30m_of_70m());
+    }
+}
+
+impl TryFrom<&str> for Solution {
+    type Error = ();
+
+    fn try_from(file_system_str: &str) -> Result<Self, Self::Error> {
+        parse(file_system_str)
+            .ok_or(())
+            .map(|_| Self(file_system_str.into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {super::*, lazy_static::lazy_static};
+
     const FILE_SYSTEM_STR: &str = "$ cd /\n\
         $ ls\n\
         dir a\n\
@@ -837,19 +830,28 @@ fn test() {
         5626152 d.ext\n\
         7214296 k";
 
-    match parse(FILE_SYSTEM_STR) {
-        Some(file_system) => {
-            assert_eq!(
-                sum_directory_sizes_at_most_n(&file_system, 100_000_usize),
-                95_437_usize
-            );
-            assert_eq!(
-                smallest_directory_size_to_free_n(&file_system, 30_000_000_usize, 70_000_000_usize),
-                24_933_642_usize
-            );
-        }
-        None => {
-            panic!();
-        }
+    lazy_static! {
+        static ref SOLUTION: Solution = Solution(FILE_SYSTEM_STR.into());
+    }
+
+    #[test]
+    fn test_try_from_str() {
+        assert_eq!(
+            Solution::try_from(FILE_SYSTEM_STR),
+            Ok(Solution(FILE_SYSTEM_STR.into()))
+        );
+    }
+
+    #[test]
+    fn test_sum_directory_sizes_at_most_100k() {
+        assert_eq!(SOLUTION.sum_directory_sizes_at_most_100k(), 95_437_usize);
+    }
+
+    #[test]
+    fn test_smallest_directory_to_free_30m_of_70m() {
+        assert_eq!(
+            SOLUTION.smallest_directory_size_to_free_30m_of_70m(),
+            24_933_642_usize
+        );
     }
 }

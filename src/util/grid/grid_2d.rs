@@ -2,7 +2,7 @@ pub use direction::*;
 
 use {
     super::*,
-    glam::IVec2,
+    glam::{BVec2, IVec2},
     std::{
         fmt::{Debug, DebugList, Error as FmtError, Formatter, Result as FmtResult, Write},
         iter::Peekable,
@@ -146,6 +146,16 @@ pub struct Grid2D<T> {
 }
 
 impl<T> Grid2D<T> {
+    pub fn try_from_cell_and_dimensions(cells: Vec<T>, dimensions: IVec2) -> Option<Self> {
+        if dimensions.cmpge(IVec2::ZERO) == BVec2::TRUE
+            && cells.len() == dimensions.x as usize * dimensions.y as usize
+        {
+            Some(Self { cells, dimensions })
+        } else {
+            None
+        }
+    }
+
     pub fn try_from_cells_and_width(cells: Vec<T>, width: usize) -> Option<Self> {
         let cells_len: usize = cells.len();
 
@@ -428,7 +438,7 @@ impl TryFrom<RangeInclusive<IVec2>> for CellIter2D {
     }
 }
 
-pub struct Grid2DString(Grid2D<u8>);
+pub struct Grid2DString(pub Grid2D<u8>);
 
 impl Grid2DString {
     pub fn grid(&self) -> &Grid2D<u8> {

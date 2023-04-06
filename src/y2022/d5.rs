@@ -1,5 +1,5 @@
 use {
-    aoc::*,
+    crate::*,
     std::{
         cmp::Ordering,
         iter::Peekable,
@@ -30,7 +30,7 @@ enum DrawingCell {
 
 /// An error encountered while parsing a `DrawingCell` from a byte slice
 #[derive(Debug, PartialEq)]
-enum DrawingCellParseError {
+pub enum DrawingCellParseError {
     /// The byte slice is not a valid UTF-8-encoded string slice
     NotUtf8(Utf8Error),
 
@@ -101,7 +101,7 @@ struct DrawingGrid {
 }
 
 #[derive(Debug, PartialEq)]
-enum DrawingGridParseError {
+pub enum DrawingGridParseError {
     NoInitialToken,
     InvalidLineLength(usize),
     InvalidGapByte(u8),
@@ -199,6 +199,7 @@ impl TryFrom<&str> for DrawingGrid {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 struct ProcedureStep {
     count: usize,
     from: u8,
@@ -216,7 +217,8 @@ impl ProcedureStep {
 }
 
 #[derive(Debug)]
-enum ProcedureStepParseError {
+#[cfg_attr(test, derive(PartialEq))]
+pub enum ProcedureStepParseError {
     NoMoveToken,
     InvalidMoveToken,
     NoCountToken,
@@ -301,6 +303,7 @@ impl CrateMover for CrateMover9001 {
 }
 
 #[derive(Clone)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 struct CargoStacks(Vec<Vec<u8>>);
 
 #[derive(Debug)]
@@ -393,8 +396,8 @@ impl CargoStacks {
 }
 
 #[allow(dead_code)]
-#[derive(Debug)]
-enum CargoStacksParseError {
+#[derive(Debug, PartialEq)]
+pub enum CargoStacksParseError {
     FailedToParseDrawingGrid(DrawingGridParseError),
     InvalidColumnCount(usize),
     InvalidCellCount(usize),
@@ -412,15 +415,11 @@ enum CargoStacksParseError {
     },
 }
 
-impl TryFrom<&str> for CargoStacks {
+impl TryFrom<DrawingGrid> for CargoStacks {
     type Error = CargoStacksParseError;
 
-    fn try_from(drawing_grid_str: &str) -> Result<Self, Self::Error> {
+    fn try_from(DrawingGrid { mut cells, columns }: DrawingGrid) -> Result<Self, Self::Error> {
         use CargoStacksParseError as Error;
-
-        let DrawingGrid { mut cells, columns } = drawing_grid_str
-            .try_into()
-            .map_err(Error::FailedToParseDrawingGrid)?;
 
         // The current understanding of the string format is that each column index is a single
         // digit, starting at 1. If that is not the case, code needs altering. We also rely on this
@@ -502,7 +501,18 @@ impl TryFrom<&str> for CargoStacks {
     }
 }
 
+impl TryFrom<&str> for CargoStacks {
+    type Error = CargoStacksParseError;
+
+    fn try_from(drawing_grid_str: &str) -> Result<Self, Self::Error> {
+        DrawingGrid::try_from(drawing_grid_str)
+            .map_err(CargoStacksParseError::FailedToParseDrawingGrid)?
+            .try_into()
+    }
+}
+
 #[derive(Clone)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 struct RearrangementProcedure(Vec<ProcedureStep>);
 
 impl TryFrom<&str> for RearrangementProcedure {
@@ -522,6 +532,7 @@ impl TryFrom<&str> for RearrangementProcedure {
 }
 
 #[derive(Clone)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 struct CargoStacksSimulation {
     cargo_stacks: CargoStacks,
     rearrangement_procedure: RearrangementProcedure,
@@ -543,7 +554,8 @@ impl CargoStacksSimulation {
 }
 
 #[derive(Debug)]
-enum CargoStacksSimulationParseError {
+#[cfg_attr(test, derive(PartialEq))]
+pub enum CargoStacksSimulationParseError {
     NoCargoStacksToken,
     FailedToParseCargoStacks(CargoStacksParseError),
     NoRearrangementProcedureToken,
@@ -583,79 +595,56 @@ impl TryFrom<&str> for CargoStacksSimulation {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day5.txt");
+pub struct Solution(CargoStacksSimulation);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                let simulation_9000: CargoStacksSimulation = match input.try_into() {
-                    Ok(cargo_stacks_simulation) => cargo_stacks_simulation,
-                    Err(cargo_stacks_simulation_parse_error) => {
-                        eprintln!(
-                            "Encountered error while parsing CargoStacksSimulation: {:#?}",
-                            cargo_stacks_simulation_parse_error
-                        );
+impl Solution {
+    fn try_compute_stack_tops<CM: CrateMover>(&self) -> Option<String> {
+        let cargo_stacks: CargoStacks = match self.0.clone().run::<CM>() {
+            Ok(cargo_stacks) => cargo_stacks,
+            Err(procedure_step_failed) => {
+                eprintln!("Running simulation failed: {:#?}", procedure_step_failed);
 
-                        return;
-                    }
-                };
+                return None;
+            }
+        };
 
-                let simulation_9001: CargoStacksSimulation = simulation_9000.clone();
-
-                fn try_compute_stack_tops<CM: CrateMover>(
-                    simulation: CargoStacksSimulation,
-                ) -> Option<String> {
-                    let cargo_stacks: CargoStacks = match simulation.run::<CM>() {
-                        Ok(cargo_stacks) => cargo_stacks,
-                        Err(procedure_step_failed) => {
-                            eprintln!("Running simulation failed: {:#?}", procedure_step_failed);
-
-                            return None;
-                        }
-                    };
-
-                    let stack_tops: String = match cargo_stacks.stack_tops() {
-                        Ok(stack_tops) => stack_tops,
-                        Err(from_utf8_error) => {
-                            eprintln!(
-                                "Failed to parse stack tops as a valid UTF-8 string: {:#?}",
-                                from_utf8_error
-                            );
-
-                            return None;
-                        }
-                    };
-
-                    Some(stack_tops)
-                }
-
-                let stack_tops_9000: Option<String> =
-                    try_compute_stack_tops::<CrateMover9000>(simulation_9000);
-                let stack_tops_9001: Option<String> =
-                    try_compute_stack_tops::<CrateMover9001>(simulation_9001);
-
-                println!(
-                    "Stack tops 9000: {:#?}\n\
-                    Stack tops 9001: {:#?}",
-                    stack_tops_9000, stack_tops_9001
+        let stack_tops: String = match cargo_stacks.stack_tops() {
+            Ok(stack_tops) => stack_tops,
+            Err(from_utf8_error) => {
+                eprintln!(
+                    "Failed to parse stack tops as a valid UTF-8 string: {:#?}",
+                    from_utf8_error
                 );
-            })
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+
+                return None;
+            }
+        };
+
+        Some(stack_tops)
+    }
+}
+
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.try_compute_stack_tops::<CrateMover9000>());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.try_compute_stack_tops::<CrateMover9001>());
+    }
+}
+
+impl TryFrom<&str> for Solution {
+    type Error = CargoStacksSimulationParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(Self(value.try_into()?))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, lazy_static::lazy_static};
 
     const DRAWING_GRID_STR: &str = concat!(
         "    [D]    \n",
@@ -681,9 +670,12 @@ mod tests {
         "move 1 from 1 to 2"
     );
 
-    #[test]
-    fn test_drawing_grid_from_str() {
-        assert_eq!(DRAWING_GRID_STR.try_into(), Ok(example_drawing_grid()));
+    lazy_static! {
+        static ref DRAWING_GRID: DrawingGrid = example_drawing_grid();
+        static ref CARGO_STACKS: CargoStacks = example_cargo_stacks();
+        static ref REARRANGEMENT_PROCEDURE: RearrangementProcedure =
+            example_rearrangement_procedure();
+        static ref SOLUTION: Solution = Solution(example_cargo_stacks_simulation());
     }
 
     fn example_drawing_grid() -> DrawingGrid {
@@ -707,5 +699,83 @@ mod tests {
             .collect(),
             columns: 3_usize,
         }
+    }
+
+    fn example_cargo_stacks() -> CargoStacks {
+        CargoStacks(vec![vec![b'Z', b'N'], vec![b'M', b'C', b'D'], vec![b'P']])
+    }
+
+    fn example_rearrangement_procedure() -> RearrangementProcedure {
+        RearrangementProcedure(vec![
+            ProcedureStep {
+                count: 1,
+                from: 2,
+                to: 1,
+            },
+            ProcedureStep {
+                count: 3,
+                from: 1,
+                to: 3,
+            },
+            ProcedureStep {
+                count: 2,
+                from: 2,
+                to: 1,
+            },
+            ProcedureStep {
+                count: 1,
+                from: 1,
+                to: 2,
+            },
+        ])
+    }
+
+    fn example_cargo_stacks_simulation() -> CargoStacksSimulation {
+        CargoStacksSimulation {
+            cargo_stacks: example_cargo_stacks(),
+            rearrangement_procedure: example_rearrangement_procedure(),
+        }
+    }
+
+    #[test]
+    fn test_drawing_grid_from_str() {
+        assert_eq!(DRAWING_GRID_STR.try_into(), Ok(example_drawing_grid()));
+    }
+
+    #[test]
+    fn test_cargo_stacks_from_str() {
+        assert_eq!(DRAWING_GRID_STR.try_into(), Ok(example_cargo_stacks()));
+    }
+
+    #[test]
+    fn test_rearrangement_procedure_from_str() {
+        assert_eq!(
+            REARRANGEMENT_PROCEDURE_STR.try_into(),
+            Ok(example_rearrangement_procedure())
+        )
+    }
+
+    #[test]
+    fn test_cargo_stacks_simulation_from_str() {
+        assert_eq!(
+            CARGO_STACKS_SIMULATION_STR.try_into(),
+            Ok(example_cargo_stacks_simulation())
+        )
+    }
+
+    #[test]
+    fn test_crate_mover_9000() {
+        assert_eq!(
+            SOLUTION.try_compute_stack_tops::<CrateMover9000>(),
+            Some("CMZ".into())
+        );
+    }
+
+    #[test]
+    fn test_crate_mover_9001() {
+        assert_eq!(
+            SOLUTION.try_compute_stack_tops::<CrateMover9001>(),
+            Some("MCD".into())
+        );
     }
 }

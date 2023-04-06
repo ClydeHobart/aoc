@@ -11,6 +11,7 @@ use {
     },
     std::{
         any::type_name,
+        cmp::{max, min},
         fmt::Debug,
         fs::File,
         io::{Error as IoError, ErrorKind, Result as IoResult},
@@ -386,6 +387,10 @@ pub unsafe fn open_utf8_file<T, F: FnOnce(&str) -> T>(file_path: &str, f: F) -> 
     })?;
 
     Ok(f(utf8_str))
+}
+
+pub fn min_and_max<T: Ord + Copy>(v1: T, v2: T) -> (T, T) {
+    (min(v1, v2), max(v1, v2))
 }
 
 pub struct TokenStream<'i, 't, I: Iterator<Item = &'t str>>(&'i mut I);

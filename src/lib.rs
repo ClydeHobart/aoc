@@ -2,4 +2,7 @@ pub use util::*;
 
 pub mod util;
 
-solutions![(y2021, [d1, d2, d3, d4,]), (y2022, [d1, d2, d3, d4,]),];
+solutions![
+    (y2021, [d1, d2, d3, d4, d5, d6, d7,]),
+    (y2022, [d1, d2, d3, d4, d5, d6, d7,]),
+];

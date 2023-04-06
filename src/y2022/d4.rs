@@ -1,5 +1,12 @@
 use {
     crate::*,
+    nom::{
+        character::complete::{line_ending, not_line_ending},
+        combinator::{iterator, map_res, opt},
+        error::Error,
+        sequence::terminated,
+        Err,
+    },
     std::{
         num::ParseIntError,
         ops::RangeInclusive,
@@ -12,6 +19,7 @@ use {
 /// # Run-time Invariants
 ///
 /// The `RangeInclusive<u8>` must not be empty
+#[cfg_attr(test, derive(Debug, PartialEq))]
 struct SectionAssignment(RangeInclusive<u8>);
 
 impl SectionAssignment {
@@ -129,6 +137,7 @@ impl TryFrom<&str> for SectionAssignment {
 }
 
 /// A pair of section assignments
+#[cfg_attr(test, derive(Debug, PartialEq))]
 struct SectionAssignmentPair(SectionAssignment, SectionAssignment);
 
 impl SectionAssignmentPair {
@@ -200,84 +209,103 @@ impl TryFrom<&str> for SectionAssignmentPair {
     }
 }
 
-/// Iterate over the section assignment pairs produced by a string slice
-///
-/// # Arguments
-///
-/// * `section_assignment_pairs_str` - The string slice to split parse section assignment pairs
-///   from, with individual section assignment pairs delineated by `'\n'`
-///
-/// # Errors
-///
-/// If a section assignment pair fails to parse, an error message is printed describing the error.
-fn iter_section_assignment_pairs(
-    section_assignment_pairs_str: &str,
-) -> impl Iterator<Item = SectionAssignmentPair> + '_ {
-    section_assignment_pairs_str.split('\n').filter_map(
-        |section_assignment_pair_str: &str| -> Option<SectionAssignmentPair> {
-            match SectionAssignmentPair::try_from(section_assignment_pair_str) {
-                Ok(section_assignment_pair) => Some(section_assignment_pair),
-                Err(sa_pair_parse_error) => {
-                    eprintln!(
-                        "Failed to parse section assignment pair \"{}\": {:?}",
-                        section_assignment_pair_str, sa_pair_parse_error
-                    );
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(Vec<SectionAssignmentPair>);
 
-                    None
-                }
-            }
-        },
-    )
-}
+impl Solution {
+    fn count_sa_pairs_with_fully_contained_sas(&self) -> usize {
+        self.0
+            .iter()
+            .filter(|sa_pair| sa_pair.one_fully_contains_other())
+            .count()
+    }
 
-/// Counts the number of section assignment pairs where one section assignment fully contains the
-/// other section assignment
-///
-/// # Arguments
-///
-/// * `section_assignment_pairs_str` - The string slice to split parse section assignment pairs
-///   from, with individual section assignment pairs delineated by `'\n'`
-fn count_sa_pairs_with_fully_contained_sas(section_assignment_pairs_str: &str) -> usize {
-    iter_section_assignment_pairs(section_assignment_pairs_str)
-        .filter(SectionAssignmentPair::one_fully_contains_other)
-        .count()
-}
-
-/// Counts the number of section assignment pairs where the section assignments overlap
-///
-/// # Arguments
-///
-/// * `section_assignment_pairs_str` - The string slice to split parse section assignment pairs
-///   from, with individual section assignment pairs delineated by `'\n'`
-fn count_overlapping_sa_pairs(section_assignment_pairs_str: &str) -> usize {
-    iter_section_assignment_pairs(section_assignment_pairs_str)
-        .filter(SectionAssignmentPair::is_overlapping)
-        .count()
-}
-
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day4.txt");
-
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                println!(
-                    "count_sa_pairs_with_fully_contained_sas == {}\n\
-                    count_overlapping_sa_pairs == {}",
-                    count_sa_pairs_with_fully_contained_sas(input),
-                    count_overlapping_sa_pairs(input)
-                );
-            })
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+    fn count_overlapping_sa_pairs(&self) -> usize {
+        self.0
+            .iter()
+            .filter(|sa_pair| sa_pair.is_overlapping())
+            .count()
     }
 }
 
-pub struct Solution {}
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.count_sa_pairs_with_fully_contained_sas());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.count_overlapping_sa_pairs());
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = Err<Error<&'i str>>;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        let mut iter = iterator(
+            input,
+            terminated(
+                map_res(not_line_ending, SectionAssignmentPair::try_from),
+                opt(line_ending),
+            ),
+        );
+
+        let result: Result<Self, Self::Error> = Ok(Self(iter.collect()));
+
+        iter.finish()?;
+
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {super::*, lazy_static::lazy_static};
+
+    const SA_PAIRS_STR: &str = concat!(
+        "2-4,6-8\n",
+        "2-3,4-5\n",
+        "5-7,7-9\n",
+        "2-8,3-7\n",
+        "6-6,4-6\n",
+        "2-6,4-8\n"
+    );
+
+    lazy_static! {
+        static ref SOLUTION: Solution = new_solution();
+    }
+
+    fn new_solution() -> Solution {
+        macro_rules! solution {
+            [ $( ( $sa_0:expr, $sa_1:expr ), )* ] => {
+                Solution(vec![ $(
+                    SectionAssignmentPair(SectionAssignment($sa_0), SectionAssignment($sa_1)),
+                )* ])
+            };
+        }
+
+        solution![
+            (2..=4, 6..=8),
+            (2..=3, 4..=5),
+            (5..=7, 7..=9),
+            (2..=8, 3..=7),
+            (6..=6, 4..=6),
+            (2..=6, 4..=8),
+        ]
+    }
+
+    #[test]
+    fn test_try_from_str() {
+        assert_eq!(Solution::try_from(SA_PAIRS_STR), Ok(new_solution()));
+    }
+
+    #[test]
+    fn test_count_sa_pairs_with_fully_contained_sas() {
+        assert_eq!(SOLUTION.count_sa_pairs_with_fully_contained_sas(), 2_usize);
+    }
+
+    #[test]
+    fn test_count_overlapping_sa_pairs() {
+        assert_eq!(SOLUTION.count_overlapping_sa_pairs(), 4_usize);
+    }
+}

@@ -1,4 +1,4 @@
-use {aoc::*, std::collections::VecDeque};
+use {crate::*, std::collections::VecDeque};
 
 #[derive(Default)]
 struct ProcessState {
@@ -10,6 +10,7 @@ struct ProcessState {
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 enum ProcessCharError {
     CharIsNotAsciiLowercase(char),
     PoppingCharWithZeroCount(char),
@@ -17,6 +18,7 @@ enum ProcessCharError {
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 enum DetectMarkerError {
     ConsecutiveDistinctCharsIsTooLarge,
     ProcessCharError(ProcessCharError),
@@ -111,44 +113,38 @@ impl TryFrom<ConsecutiveDistinctChars> for ProcessState {
     }
 }
 
-fn detect_marker(
-    datastream: &str,
-    consecutive_distinct_chars: usize,
-) -> Result<usize, DetectMarkerError> {
-    ProcessState::try_from(ConsecutiveDistinctChars(consecutive_distinct_chars))?
-        .detect_marker(datastream)
+pub struct Solution(String);
+
+impl Solution {
+    fn detect_marker(&self, consecutive_distinct_chars: usize) -> Result<usize, DetectMarkerError> {
+        ProcessState::try_from(ConsecutiveDistinctChars(consecutive_distinct_chars))?
+            .detect_marker(&self.0)
+    }
+
+    fn detect_start_of_packet_marker(&self) -> Result<usize, DetectMarkerError> {
+        self.detect_marker(4_usize)
+    }
+
+    fn detect_start_of_message_marker(&self) -> Result<usize, DetectMarkerError> {
+        self.detect_marker(14_usize)
+    }
 }
 
-fn detect_start_of_packet_marker(datastream: &str) -> Result<usize, DetectMarkerError> {
-    detect_marker(datastream, 4_usize)
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        let _ = dbg!(self.detect_start_of_packet_marker());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        let _ = dbg!(self.detect_start_of_message_marker());
+    }
 }
 
-fn detect_start_of_message_marker(datastream: &str) -> Result<usize, DetectMarkerError> {
-    detect_marker(datastream, 14_usize)
-}
+impl TryFrom<&str> for Solution {
+    type Error = ();
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day6.txt");
-
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                println!(
-                    "detect_start_of_packet_marker == {:#?}\n\
-                    detect_start_of_message_marker == {:#?}",
-                    detect_start_of_packet_marker(input),
-                    detect_start_of_message_marker(input)
-                );
-            })
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(Self(value.into()))
     }
 }
 
@@ -165,14 +161,16 @@ mod tests {
             ("nznrnfrfntjfmvfwmzdfjlvtqnbhcprsg", 10_usize, 29_usize),
             ("zcfzfwzzqfrljwzlrfnpqdbhtmscgvjw", 11_usize, 26_usize),
         ] {
-            assert!(matches!(
-                detect_start_of_packet_marker(datastream),
-                Ok(start_of_packet) if start_of_packet == expected_start_of_packet
-            ));
-            assert!(matches!(
-                detect_start_of_message_marker(datastream),
-                Ok(start_of_message) if start_of_message == expected_start_of_message
-            ));
+            let solution: Solution = Solution(datastream.into());
+
+            assert_eq!(
+                solution.detect_start_of_packet_marker(),
+                Ok(expected_start_of_packet)
+            );
+            assert_eq!(
+                solution.detect_start_of_message_marker(),
+                Ok(expected_start_of_message)
+            );
         }
     }
 }
