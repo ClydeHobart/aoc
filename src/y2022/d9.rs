@@ -1,5 +1,5 @@
 use {
-    aoc::*,
+    crate::*,
     bitvec::prelude::*,
     glam::IVec2,
     std::{
@@ -37,7 +37,7 @@ impl From<XZDirection> for Direction {
 }
 
 #[derive(Debug, PartialEq)]
-struct InvalidXZDirectionChar(char);
+pub struct InvalidXZDirectionChar(char);
 
 impl TryFrom<char> for XZDirection {
     type Error = InvalidXZDirectionChar;
@@ -72,7 +72,7 @@ impl From<Motion> for IVec2 {
 }
 
 #[derive(Debug, PartialEq)]
-enum MotionParseError<'s> {
+pub enum MotionParseError<'s> {
     NoDirToken,
     InvalidDirTokenLength(&'s str),
     FailedToParseDir(InvalidXZDirectionChar),
@@ -369,48 +369,53 @@ impl<const N: usize> HasVisitedGrid for Grid2D<HasVisited<N>> {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day9.txt");
+type SolutionHasVisitedGrid = Grid2D<HasVisited<{ Solution::N }>>;
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(
-                input_file_path,
-                |input: &str| match MotionSequence::try_from(input) {
-                    Ok(motion_sequence) => {
-                        const TAIL_1: usize = 1_usize;
-                        const TAIL_2: usize = 9_usize;
-                        const N: usize = TAIL_2 + 1_usize;
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(SolutionHasVisitedGrid);
 
-                        let (initial, dimensions): (IVec2, IVec2) =
-                            motion_sequence.compute_initial_and_dimensions();
+impl Solution {
+    const TAIL_1: usize = 1_usize;
+    const TAIL_2: usize = 9_usize;
+    const N: usize = if Solution::TAIL_1 > Solution::TAIL_2 {
+        Solution::TAIL_1
+    } else {
+        Solution::TAIL_2
+    } + 1_usize;
 
-                        let mut has_visited_grid: Grid2D<HasVisited<N>> =
-                            Grid2D::default(dimensions);
+    fn count_visited_tail_1(&self) -> usize {
+        self.0.count_visited(Self::TAIL_1)
+    }
 
-                        has_visited_grid.visit(motion_sequence.iter(initial));
+    fn count_visited_tail_2(&self) -> usize {
+        self.0.count_visited(Self::TAIL_2)
+    }
+}
 
-                        println!(
-                            "has_visited_grid.count_visited(TAIL_1) == {}\n\
-                            has_visited_grid.count_visited(TAIL_2) == {}",
-                            has_visited_grid.count_visited(TAIL_1),
-                            has_visited_grid.count_visited(TAIL_2)
-                        );
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                },
-            )
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.count_visited_tail_1());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.count_visited_tail_2());
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = MotionParseError<'i>;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        let motion_sequence: MotionSequence = input.try_into()?;
+        let (initial, dimensions): (IVec2, IVec2) =
+            motion_sequence.compute_initial_and_dimensions();
+
+        let mut has_visited_grid: SolutionHasVisitedGrid =
+            SolutionHasVisitedGrid::default(dimensions);
+
+        has_visited_grid.visit(motion_sequence.iter(initial));
+
+        Ok(Self(has_visited_grid))
     }
 }
 

@@ -7,7 +7,7 @@ use {
         fmt::{Debug, DebugList, Error as FmtError, Formatter, Result as FmtResult, Write},
         iter::Peekable,
         ops::{Range, RangeInclusive},
-        str::{from_utf8, Split, Utf8Error},
+        str::{from_utf8, Lines, Utf8Error},
     },
     strum::IntoEnumIterator,
 };
@@ -310,7 +310,7 @@ impl<'s, E, T: TryFrom<char, Error = E>> TryFrom<&'s str> for Grid2D<T> {
     fn try_from(grid_str: &'s str) -> Result<Self, Self::Error> {
         use GridParseError as Error;
 
-        let mut grid_line_iter: Peekable<Split<char>> = grid_str.split('\n').peekable();
+        let mut grid_line_iter: Peekable<Lines> = grid_str.lines().peekable();
 
         let side_len: usize = grid_line_iter.peek().ok_or(Error::NoInitialToken)?.len();
 
