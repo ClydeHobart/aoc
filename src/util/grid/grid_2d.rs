@@ -146,7 +146,7 @@ pub struct Grid2D<T> {
 }
 
 impl<T> Grid2D<T> {
-    pub fn try_from_cell_and_dimensions(cells: Vec<T>, dimensions: IVec2) -> Option<Self> {
+    pub fn try_from_cells_and_dimensions(cells: Vec<T>, dimensions: IVec2) -> Option<Self> {
         if dimensions.cmpge(IVec2::ZERO) == BVec2::TRUE
             && cells.len() == dimensions.x as usize * dimensions.y as usize
         {

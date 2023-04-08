@@ -108,7 +108,7 @@ impl Solution {
     ) -> (usize, Grid2D<u8>) {
         let dimensions: IVec2 = self.range.end - self.range.start;
 
-        let mut grid: Grid2D<u8> = Grid2D::try_from_cell_and_dimensions(
+        let mut grid: Grid2D<u8> = Grid2D::try_from_cells_and_dimensions(
             vec![0_u8; dimensions.x as usize * dimensions.y as usize],
             dimensions,
         )

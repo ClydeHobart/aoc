@@ -11,17 +11,6 @@ use {
     std::str::FromStr,
 };
 
-/// Solution to [--- Day 7: The Treachery of Whales ---][day7]
-///
-/// # Theorem
-///
-/// The global minimum cost occurs at the median position
-///
-/// # Proof
-///
-/// Let `cost_min` be the global minimum cost
-///
-/// [day7]: https://adventofcode.com/2021/day/7
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct Solution(Vec<u16>);
 
