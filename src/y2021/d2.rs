@@ -116,10 +116,10 @@ mod tests {
     const COMMANDS_STR: &str = "forward 5\ndown 5\nforward 8\nup 3\ndown 8\nforward 2\n";
 
     lazy_static! {
-        static ref SOLUTION: Solution = new_solutions();
+        static ref SOLUTION: Solution = solution();
     }
 
-    fn new_solutions() -> Solution {
+    fn solution() -> Solution {
         use Command::*;
 
         Solution(vec![
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(COMMANDS_STR), Ok(new_solutions()));
+        assert_eq!(Solution::try_from(COMMANDS_STR), Ok(solution()));
     }
 
     #[test]

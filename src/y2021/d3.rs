@@ -182,10 +182,10 @@ mod tests {
         "00100\n11110\n10110\n10111\n10101\n01111\n00111\n11100\n10000\n11001\n00010\n01010";
 
     lazy_static! {
-        static ref SOLUTION: Solution = new_solutions();
+        static ref SOLUTION: Solution = solutions();
     }
 
-    fn new_solutions() -> Solution {
+    fn solutions() -> Solution {
         Solution {
             nums: vec![
                 0b00100_u16,
@@ -207,10 +207,7 @@ mod tests {
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(
-            Solution::try_from(DIAGNOSTIC_REPORT_STR),
-            Ok(new_solutions())
-        );
+        assert_eq!(Solution::try_from(DIAGNOSTIC_REPORT_STR), Ok(solutions()));
     }
 
     #[test]

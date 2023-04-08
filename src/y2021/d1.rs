@@ -79,16 +79,16 @@ mod tests {
     const SWEEP_REPORT_STR: &str = "199\n200\n208\n210\n200\n207\n240\n269\n260\n263\n";
 
     lazy_static! {
-        static ref SOLUTION: Solution = new_solutions();
+        static ref SOLUTION: Solution = solutions();
     }
 
-    fn new_solutions() -> Solution {
+    fn solutions() -> Solution {
         Solution(vec![199, 200, 208, 210, 200, 207, 240, 269, 260, 263])
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(SWEEP_REPORT_STR), Ok(new_solutions()))
+        assert_eq!(Solution::try_from(SWEEP_REPORT_STR), Ok(solutions()))
     }
 
     #[test]

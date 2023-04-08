@@ -146,10 +146,10 @@ mod tests {
         35390";
 
     lazy_static! {
-        static ref SOLUTION: Solution = new_solution();
+        static ref SOLUTION: Solution = solution();
     }
 
-    fn new_solution() -> Solution {
+    fn solution() -> Solution {
         macro_rules! heights { [ $( $height:expr ),* ] => { vec![ $( Height($height), )* ] }; }
 
         const DIMENSIONS: IVec2 = IVec2::new(5_i32, 5_i32);
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(HEIGHT_GRID_STR), Ok(new_solution()))
+        assert_eq!(Solution::try_from(HEIGHT_GRID_STR), Ok(solution()))
     }
 
     #[test]

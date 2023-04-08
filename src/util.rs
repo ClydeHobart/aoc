@@ -23,6 +23,9 @@ use {
 mod graph;
 mod grid;
 
+#[allow(unreachable_code, unused_imports, unused_variables)]
+mod template;
+
 #[derive(Debug, Parser)]
 pub struct QuestionArgs {
     /// Print extra information, if there is any

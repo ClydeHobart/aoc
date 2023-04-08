@@ -272,10 +272,10 @@ mod tests {
     );
 
     lazy_static! {
-        static ref SOLUTION: Solution = new_solution();
+        static ref SOLUTION: Solution = solution();
     }
 
-    fn new_solution() -> Solution {
+    fn solution() -> Solution {
         macro_rules! solution {
             [ $( ( $sa_0:expr, $sa_1:expr ), )* ] => {
                 Solution(vec![ $(
@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(SA_PAIRS_STR), Ok(new_solution()));
+        assert_eq!(Solution::try_from(SA_PAIRS_STR), Ok(solution()));
     }
 
     #[test]

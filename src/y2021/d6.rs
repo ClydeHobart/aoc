@@ -127,10 +127,10 @@ mod tests {
     const LANTERNFISH_STR: &str = "3,4,3,1,2";
 
     lazy_static! {
-        static ref SOLUTION: Solution = new_solution();
+        static ref SOLUTION: Solution = solution();
     }
 
-    fn new_solution() -> Solution {
+    fn solution() -> Solution {
         Solution(State {
             counts: [
                 0_usize, 1_usize, 1_usize, 2_usize, 1_usize, 0_usize, 0_usize, 0_usize, 0_usize,
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(LANTERNFISH_STR), Ok(new_solution()));
+        assert_eq!(Solution::try_from(LANTERNFISH_STR), Ok(solution()));
     }
 
     #[test]

@@ -97,16 +97,16 @@ mod tests {
     const POSITIONS_STR: &str = "16,1,2,0,4,2,7,1,2,14";
 
     lazy_static! {
-        static ref SOLUTION: Solution = new_solution();
+        static ref SOLUTION: Solution = solution();
     }
 
-    fn new_solution() -> Solution {
+    fn solution() -> Solution {
         Solution(vec![0, 1, 1, 2, 2, 2, 4, 7, 14, 16])
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(POSITIONS_STR), Ok(new_solution()));
+        assert_eq!(Solution::try_from(POSITIONS_STR), Ok(solution()));
     }
 
     mod linear {

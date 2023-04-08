@@ -462,10 +462,10 @@ mod tests {
 
     lazy_static! {
         static ref ENTRY: Entry = new_entry();
-        static ref SOLUTION: Solution = new_solution();
+        static ref SOLUTION: Solution = solution();
     }
 
-    fn new_solution() -> Solution {
+    fn solution() -> Solution {
         Solution::try_from(ENTRIES_STR).unwrap_or(Solution(Vec::new()))
     }
 
