@@ -1,5 +1,5 @@
 use {
-    aoc::*,
+    crate::*,
     std::{
         num::ParseIntError,
         str::{FromStr, Split},
@@ -88,7 +88,7 @@ impl Expression {
 }
 
 #[derive(Debug, PartialEq)]
-enum ExpressionParseError<'s> {
+pub enum ExpressionParseError<'s> {
     NoLhsToken,
     FailedToParseLhs(ParseIntError),
     NoOperationToken,
@@ -202,7 +202,7 @@ impl MonkeyMemo {
 }
 
 #[derive(Debug, PartialEq)]
-enum MonkeyMemoParseError<'s> {
+pub enum MonkeyMemoParseError<'s> {
     NoStartingItemsToken,
     InvalidStartingItemsToken(&'s str),
     FailedToParseItem(ParseIntError),
@@ -379,7 +379,7 @@ impl MonkeyNotes {
 }
 
 #[derive(Debug, PartialEq)]
-enum MonkeyNotesParseError<'s> {
+pub enum MonkeyNotesParseError<'s> {
     NoMonkeyIndexToken,
     InvalidMonkeyIndexToken(&'s str),
     FailedToParseMonkeyIndex(ParseIntError),
@@ -451,47 +451,42 @@ impl<'s> TryFrom<&'s str> for MonkeyNotes {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day11.txt");
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(MonkeyNotes);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                match MonkeyNotes::try_from(input) {
-                    Ok(mut monkey_notes) => {
-                        let mut monkey_notes_with_worry_and_modulus: MonkeyNotes =
-                            monkey_notes.clone();
+impl Solution {
+    fn monkey_business(&self) -> usize {
+        let mut monkey_notes: MonkeyNotes = self.0.clone();
 
-                        monkey_notes.run_rounds(20_usize);
+        monkey_notes.run_rounds(20_usize);
 
-                        let monkey_business: usize = monkey_notes.monkey_business();
+        monkey_notes.monkey_business()
+    }
 
-                        monkey_notes_with_worry_and_modulus
-                            .run_rounds_with_worry_and_modulus(10_000_usize);
+    fn monkey_business_with_worry_and_modulus(&self) -> usize {
+        let mut monkey_notes: MonkeyNotes = self.0.clone();
 
-                        let monkey_business_with_worry_and_modulus: usize =
-                            monkey_notes_with_worry_and_modulus.monkey_business();
+        monkey_notes.run_rounds_with_worry_and_modulus(10_000_usize);
 
-                        println!(
-                            "monkey_business == {monkey_business}\n\
-                            monkey_business_with_worry_and_modulus == \
-                            {monkey_business_with_worry_and_modulus}"
-                        );
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                }
-            })
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+        monkey_notes.monkey_business()
+    }
+}
+
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.monkey_business());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.monkey_business_with_worry_and_modulus());
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = MonkeyNotesParseError<'i>;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(MonkeyNotes::try_from(input)?))
     }
 }
 
