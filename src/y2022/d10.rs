@@ -1,13 +1,12 @@
-use std::{mem::transmute, str::from_utf8};
-
 use {
-    aoc::*,
+    crate::*,
     glam::IVec2,
     std::{
         fmt::{Debug, Error, Formatter, Result as FmtResult, Write},
+        mem::transmute,
         num::{NonZeroU32, ParseIntError},
         slice::Iter,
-        str::{FromStr, Split, Utf8Error},
+        str::{from_utf8, FromStr, Split, Utf8Error},
     },
 };
 
@@ -38,7 +37,7 @@ impl Instruction {
 }
 
 #[derive(Debug, PartialEq)]
-enum InstructionParseError<'s> {
+pub enum InstructionParseError<'s> {
     NoInitialToken,
     InvalidInstructionToken(&'s str),
     NoValueToken,
@@ -287,53 +286,43 @@ impl TryFrom<Crt> for String {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day10.txt");
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(Instructions);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(
-                input_file_path,
-                |input: &str| match Instructions::try_from(input) {
-                    Ok(instructions) => {
-                        let cpu_state: CpuState = CpuState::default();
-                        let sum_of_first_six_signal_strengths_where_cycle_mod_40_is_20: i32 =
-                            cpu_state
-                                .execute(instructions.iter())
-                                .filter(CpuState::cycle_mod_40_is_20)
-                                .map(CpuState::signal_strength)
-                                .take(6_usize)
-                                .sum();
+impl Solution {
+    fn sum_of_first_six_signal_strenghts_where_mod_40_is_20(&self) -> i32 {
+        CpuState::default()
+            .execute(self.0.iter())
+            .filter(CpuState::cycle_mod_40_is_20)
+            .map(CpuState::signal_strength)
+            .take(6_usize)
+            .sum()
+    }
 
-                        let mut crt: Crt = Crt::new();
+    fn crt_string(&self) -> String {
+        let mut crt: Crt = Crt::new();
 
-                        crt.image(instructions.iter());
+        crt.image(self.0.iter());
 
-                        let crt_string: String = crt.try_into().unwrap_or_default();
+        crt.try_into().unwrap_or_default()
+    }
+}
 
-                        println!(
-                            "sum_of_first_six_signal_strengths_where_cycle_mod_40_is_20 == \
-                            {sum_of_first_six_signal_strengths_where_cycle_mod_40_is_20}\n\
-                            crt_string ==\n\
-                            -----\n\
-                            {crt_string}\
-                            -----"
-                        );
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                },
-            )
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.sum_of_first_six_signal_strenghts_where_mod_40_is_20());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        eprintln!("self.crt_string():\n{}", self.crt_string());
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = InstructionParseError<'i>;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(Instructions::try_from(input)?))
     }
 }
 
@@ -506,38 +495,8 @@ mod tests {
     }
 
     #[test]
-    fn test_execute() {
-        let cpu_state: CpuState = CpuState::default();
-
-        macro_rules! cpu_states {
-            [$($cycle:expr => $x:expr,)*] => { vec![ $( CpuState { cycle: $cycle, x: $x }, )* ] };
-        }
-
-        assert_eq!(
-            cpu_state
-                .execute(example_1_instructions().iter())
-                .collect::<Vec<CpuState>>(),
-            cpu_states![
-                1 => 1,
-                2 => 1,
-                3 => 1,
-                4 => 4,
-                5 => 4,
-            ]
-        );
-
-        assert_eq!(
-            cpu_state,
-            CpuState {
-                cycle: 6_u32,
-                x: -1_i32
-            }
-        );
-    }
-
-    #[test]
     fn test_signal_strengths() {
-        let mut cpu_state: CpuState = CpuState::default();
+        let cpu_state: CpuState = CpuState::default();
 
         let signal_strengths_where_cycle_mod_40_is_20: Vec<i32> = cpu_state
             .execute(example_2_instructions().iter())
