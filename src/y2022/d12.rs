@@ -1,5 +1,5 @@
 use {
-    aoc::*,
+    crate::*,
     glam::IVec2,
     std::fmt::{Debug, Formatter, Result as FmtResult},
     strum::IntoEnumIterator,
@@ -14,7 +14,7 @@ impl HeightCell {
 }
 
 #[derive(Debug, PartialEq)]
-struct InvalidHeightCellChar(char);
+pub struct InvalidHeightCellChar(char);
 
 impl Default for HeightCell {
     fn default() -> Self {
@@ -141,7 +141,7 @@ struct HeightGrid {
 }
 
 #[derive(Debug, PartialEq)]
-enum HeightGridParseError<'s> {
+pub enum HeightGridParseError<'s> {
     FailedToParseGrid(GridParseError<'s, InvalidHeightCellChar>),
     GridContainsNoStartPosition,
     GridContainsNoEndPosition,
@@ -337,47 +337,50 @@ impl<'h> BreadthFirstSearch for HeightGridBreadthFirstSearchDescent<'h> {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day12.txt");
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(HeightGrid);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                match HeightGrid::try_from(input) {
-                    Ok(height_grid) => {
-                        let a_star_path: Vec<IVec2> = HeightGridAStarAscent::new(&height_grid)
-                            .run()
-                            .expect("Failed to obtain a path from A*");
-                        let bfs_path: Vec<IVec2> =
-                            HeightGridBreadthFirstSearchDescent::new(&height_grid)
-                                .run()
-                                .expect("Failed to obtain a path from BFS");
+impl Solution {
+    fn a_star_ascent(&self) -> Vec<IVec2> {
+        HeightGridAStarAscent::new(&self.0)
+            .run()
+            .unwrap_or_default()
+    }
 
-                        println!(
-                            "a_star_path.len() == {} (steps == {})\n\
-                            bfs_path.len() == {} (steps == {})\n\n\
-                            a_star_path == {a_star_path:#?}\n\n
-                            bfs_path == {bfs_path:#?}",
-                            a_star_path.len(),
-                            a_star_path.len() - 1_usize,
-                            bfs_path.len(),
-                            bfs_path.len() - 1_usize
-                        );
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                }
-            })
+    fn bfs_descent(&self) -> Vec<IVec2> {
+        HeightGridBreadthFirstSearchDescent::new(&self.0)
+            .run()
+            .unwrap_or_default()
+    }
+}
+
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, args: &QuestionArgs) {
+        let a_star_ascent: Vec<IVec2> = self.a_star_ascent();
+
+        dbg!(a_star_ascent.len());
+
+        if args.verbose {
+            dbg!(a_star_ascent);
         }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+    }
+
+    fn q2_internal(&mut self, args: &QuestionArgs) {
+        let bfs_descent: Vec<IVec2> = self.bfs_descent();
+
+        dbg!(bfs_descent.len());
+
+        if args.verbose {
+            dbg!(bfs_descent);
+        }
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = HeightGridParseError<'i>;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(input.try_into()?))
     }
 }
 
