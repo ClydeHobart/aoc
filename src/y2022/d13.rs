@@ -1,14 +1,12 @@
 use {
-    aoc::*,
+    crate::*,
+    lazy_static::lazy_static,
     std::{
         cmp::Ordering,
         num::ParseIntError,
         str::{from_utf8_unchecked, FromStr, Split},
     },
 };
-
-#[macro_use]
-extern crate lazy_static;
 
 #[derive(Debug, PartialEq)]
 struct BracketPair {
@@ -77,7 +75,7 @@ impl PartialOrd for Packet {
 }
 
 #[derive(Debug, PartialEq)]
-enum PacketParseError {
+pub enum PacketParseError {
     InvalidChar { index: usize, c: char },
     BracketMismatch,
     FailedToParseInt(ParseIntError),
@@ -168,7 +166,7 @@ impl TryFrom<&str> for Packet {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct PacketPair {
     left: Packet,
     right: Packet,
@@ -181,7 +179,7 @@ impl PacketPair {
 }
 
 #[derive(Debug, PartialEq)]
-enum PacketPairParseError<'s> {
+pub enum PacketPairParseError<'s> {
     NoLeftToken,
     FailedToParseLeft(PacketParseError),
     NoRightToken,
@@ -213,7 +211,7 @@ impl<'s> TryFrom<&'s str> for PacketPair {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct PacketPairs(Vec<PacketPair>);
 
 impl<'s> TryFrom<&'s str> for PacketPairs {
@@ -282,66 +280,46 @@ impl TryFrom<&str> for Packets {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day13.txt");
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(PacketPairs);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                match PacketPairs::try_from(input) {
-                    Ok(packet_pairs) => {
-                        let indices_and_orderings: Vec<(usize, Option<Ordering>)> = packet_pairs
-                            .0
-                            .iter()
-                            .map(PacketPair::partial_cmp)
-                            .enumerate()
-                            .map(|(index, ordering)| (index + 1_usize, ordering))
-                            .collect();
+impl Solution {
+    fn right_order_pair_index_sum(&self) -> usize {
+        self.0
+             .0
+            .iter()
+            .enumerate()
+            .filter(|(_, packet_pair)| packet_pair.partial_cmp() == Some(Ordering::Less))
+            .map(|(index, _)| index + 1_usize)
+            .sum()
+    }
 
-                        let mut counts: [usize; 4_usize] = [0_usize; 4_usize];
+    fn decoder_key(&self) -> usize {
+        Packets::from(self.0.clone()).decoder_key()
+    }
+}
 
-                        for (index, ordering) in indices_and_orderings.iter() {
-                            if let Some(ordering) = ordering {
-                                counts[(*ordering as i8 + 1_i8) as usize] += *index;
-                            } else {
-                                counts[3_usize] += *index;
-                            }
-                        }
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.right_order_pair_index_sum());
+    }
 
-                        let mut packets: Packets = packet_pairs.into();
-                        let decoder_key: usize = packets.decoder_key();
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.decoder_key());
+    }
+}
 
-                        println!(
-                            "counts[Some(Less)] == {}\n\
-                            counts[Some(Equal)] == {}\n\
-                            counts[Some(Greater)] == {}\n\
-                            counts[None] == {}\n\
-                            decoder_key == {decoder_key}\n\n\
-                            indices_and_orderings == {indices_and_orderings:#?}",
-                            counts[0_usize], counts[1_usize], counts[2_usize], counts[3_usize]
-                        );
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                }
-            })
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = PacketPairParseError<'i>;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(input.try_into()?))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use Packet::Int as I;
+    use {super::*, Packet::Int as I};
 
     macro_rules! l { [$($i: expr),*] => { Packet::List(vec![ $( $i, )* ]) }; }
 
@@ -391,6 +369,10 @@ mod tests {
         "[9]",
     );
 
+    lazy_static! {
+        static ref SOLUTION: Solution = example_solution();
+    }
+
     #[test]
     fn test_packet_pairs_from_str() {
         assert_eq!(PACKET_PAIRS_STR.try_into(), Ok(example_packet_pairs()));
@@ -433,6 +415,11 @@ mod tests {
 
         assert_eq!(packets.decoder_key(), 140_usize);
         assert_eq!(packets, example_packets_with_divider_packets());
+    }
+
+    #[test]
+    fn test_right_order_pair_index_sum() {
+        assert_eq!(SOLUTION.right_order_pair_index_sum(), 13_usize);
     }
 
     fn example_packet_pairs() -> PacketPairs {
@@ -513,5 +500,9 @@ mod tests {
             l![l![I(8), I(7), I(6)]],
             l![I(9)],
         ])
+    }
+
+    fn example_solution() -> Solution {
+        Solution(example_packet_pairs())
     }
 }
