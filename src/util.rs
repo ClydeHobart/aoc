@@ -22,6 +22,7 @@ use {
 
 mod graph;
 mod grid;
+pub mod minimal_value_with_all_digit_pairs;
 
 #[allow(unreachable_code, unused_imports, unused_variables)]
 mod template;
@@ -315,7 +316,7 @@ impl Solutions {
 
 #[macro_export]
 macro_rules! solutions {
-    [ $( ( $year:ident, [ $( $day:ident, )* ] ), )* ] => {
+    [ $( ( $year:ident, [ $( $day:ident ),* $(,)?] ) ),* $(,)? ] => {
         $(
             pub mod $year {
                 $(

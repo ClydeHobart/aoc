@@ -1,6 +1,7 @@
 use {
-    aoc::*,
+    crate::*,
     glam::IVec2,
+    static_assertions::const_assert_eq,
     std::{
         fmt::{Error as FmtError, Write},
         mem::{align_of, size_of, transmute},
@@ -8,9 +9,6 @@ use {
         str::{from_utf8_unchecked, FromStr, Split},
     },
 };
-
-#[macro_use]
-extern crate static_assertions;
 
 const SAND_SOURCE: IVec2 = IVec2::new(500_i32, 0_i32);
 
@@ -94,7 +92,7 @@ impl Default for Scan {
 }
 
 #[derive(Debug, PartialEq)]
-enum ScanParseError<'s> {
+pub enum ScanParseError<'s> {
     NoXToken(&'s str),
     FailedToParseX(ParseIntError),
     NoYToken(&'s str),
@@ -289,59 +287,57 @@ impl ScanGrid {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day14.txt");
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(Scan);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| match Scan::try_from(input) {
-                Ok(mut scan) => {
-                    let mut floorless_scan_grid: ScanGrid = match scan.scan_grid() {
-                        Ok(floorless_scan_grid) => floorless_scan_grid,
-                        Err(error) => {
-                            panic!("{error:#?}")
-                        }
-                    };
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, args: &QuestionArgs) {
+        let mut floorless_scan_grid: Result<ScanGrid, ScanGridFromScanError> = self.0.scan_grid();
 
-                    scan.add_floor();
+        dbg!(floorless_scan_grid
+            .as_mut()
+            .map(ScanGrid::add_all_sand_units))
+        .ok();
 
-                    let mut floorful_scan_grid: ScanGrid = match scan.scan_grid() {
-                        Ok(floorful_scan_grid) => floorful_scan_grid,
-                        Err(error) => {
-                            panic!("{error:#?}")
-                        }
-                    };
+        if args.verbose {
+            let floorless_scan_grid_string: String = floorless_scan_grid
+                .as_ref()
+                .map(ScanGrid::string)
+                .map(Result::unwrap_or_default)
+                .unwrap_or_default();
 
-                    println!(
-                        "floorless_scan_grid.add_all_sand_units() == {:#?}\n\
-                            floorful_scan_grid.add_all_sand_units() == {:#?}\n\
-                            floorless_scan_grid.string():\n\
-                            \"\"\"\n\
-                            {}\
-                            \"\"\"\n\
-                            floorful_scan_grid.string():\n\
-                            \"\"\"\n\
-                            {}\
-                            \"\"\"",
-                        floorless_scan_grid.add_all_sand_units(),
-                        floorful_scan_grid.add_all_sand_units(),
-                        floorless_scan_grid.string().unwrap_or_default(),
-                        floorful_scan_grid.string().unwrap_or_default()
-                    );
-                }
-                Err(error) => {
-                    panic!("{error:#?}")
-                }
-            })
+            println!("floorless_scan_grid_string:\n\"\"\"\n{floorless_scan_grid_string}\n\"\"\"");
         }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+    }
+
+    fn q2_internal(&mut self, args: &QuestionArgs) {
+        self.0.add_floor();
+
+        let mut floorful_scan_grid_string: Result<ScanGrid, ScanGridFromScanError> =
+            self.0.scan_grid();
+
+        dbg!(floorful_scan_grid_string
+            .as_mut()
+            .map(ScanGrid::add_all_sand_units))
+        .ok();
+
+        if args.verbose {
+            let floorful_scan_grid_string: String = floorful_scan_grid_string
+                .as_ref()
+                .map(ScanGrid::string)
+                .map(Result::unwrap_or_default)
+                .unwrap_or_default();
+
+            println!("floorless_scan_grid_string:\n\"\"\"\n{floorful_scan_grid_string}\n\"\"\"");
+        }
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = ScanParseError<'i>;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(input.try_into()?))
     }
 }
 
