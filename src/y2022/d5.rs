@@ -595,6 +595,8 @@ impl TryFrom<&str> for CargoStacksSimulation {
     }
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
+
 pub struct Solution(CargoStacksSimulation);
 
 impl Solution {
@@ -644,7 +646,7 @@ impl TryFrom<&str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const DRAWING_GRID_STR: &str = concat!(
         "    [D]    \n",
@@ -670,103 +672,110 @@ mod tests {
         "move 1 from 1 to 2"
     );
 
-    lazy_static! {
-        static ref DRAWING_GRID: DrawingGrid = example_drawing_grid();
-        static ref CARGO_STACKS: CargoStacks = example_cargo_stacks();
-        static ref REARRANGEMENT_PROCEDURE: RearrangementProcedure =
-            example_rearrangement_procedure();
-        static ref SOLUTION: Solution = Solution(example_cargo_stacks_simulation());
+    fn drawing_grid() -> &'static DrawingGrid {
+        static ONCE_LOCK: OnceLock<DrawingGrid> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            use DrawingCell::*;
+
+            let emty = || Empty;
+            let c = |c: char| Crate(c as u8);
+            let idx = |i: u8| ColumnIndex(i);
+
+            DrawingGrid {
+                cells: [
+                    [emty(), c('D'), emty()],
+                    [c('N'), c('C'), emty()],
+                    [c('Z'), c('M'), c('P')],
+                    [idx(1), idx(2), idx(3)],
+                ]
+                .iter()
+                .map(|drawing_cells| drawing_cells.iter())
+                .flatten()
+                .copied()
+                .collect(),
+                columns: 3_usize,
+            }
+        })
     }
 
-    fn example_drawing_grid() -> DrawingGrid {
-        use DrawingCell::*;
+    fn cargo_stacks() -> &'static CargoStacks {
+        static ONCE_LOCK: OnceLock<CargoStacks> = OnceLock::new();
 
-        let emty = || Empty;
-        let c = |c: char| Crate(c as u8);
-        let idx = |i: u8| ColumnIndex(i);
-
-        DrawingGrid {
-            cells: [
-                [emty(), c('D'), emty()],
-                [c('N'), c('C'), emty()],
-                [c('Z'), c('M'), c('P')],
-                [idx(1), idx(2), idx(3)],
-            ]
-            .iter()
-            .map(|drawing_cells| drawing_cells.iter())
-            .flatten()
-            .copied()
-            .collect(),
-            columns: 3_usize,
-        }
+        ONCE_LOCK
+            .get_or_init(|| CargoStacks(vec![vec![b'Z', b'N'], vec![b'M', b'C', b'D'], vec![b'P']]))
     }
 
-    fn example_cargo_stacks() -> CargoStacks {
-        CargoStacks(vec![vec![b'Z', b'N'], vec![b'M', b'C', b'D'], vec![b'P']])
+    fn rearrangement_procedure() -> &'static RearrangementProcedure {
+        static ONCE_LOCK: OnceLock<RearrangementProcedure> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            RearrangementProcedure(vec![
+                ProcedureStep {
+                    count: 1,
+                    from: 2,
+                    to: 1,
+                },
+                ProcedureStep {
+                    count: 3,
+                    from: 1,
+                    to: 3,
+                },
+                ProcedureStep {
+                    count: 2,
+                    from: 2,
+                    to: 1,
+                },
+                ProcedureStep {
+                    count: 1,
+                    from: 1,
+                    to: 2,
+                },
+            ])
+        })
     }
 
-    fn example_rearrangement_procedure() -> RearrangementProcedure {
-        RearrangementProcedure(vec![
-            ProcedureStep {
-                count: 1,
-                from: 2,
-                to: 1,
-            },
-            ProcedureStep {
-                count: 3,
-                from: 1,
-                to: 3,
-            },
-            ProcedureStep {
-                count: 2,
-                from: 2,
-                to: 1,
-            },
-            ProcedureStep {
-                count: 1,
-                from: 1,
-                to: 2,
-            },
-        ])
-    }
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
 
-    fn example_cargo_stacks_simulation() -> CargoStacksSimulation {
-        CargoStacksSimulation {
-            cargo_stacks: example_cargo_stacks(),
-            rearrangement_procedure: example_rearrangement_procedure(),
-        }
-    }
-
-    #[test]
-    fn test_drawing_grid_from_str() {
-        assert_eq!(DRAWING_GRID_STR.try_into(), Ok(example_drawing_grid()));
-    }
-
-    #[test]
-    fn test_cargo_stacks_from_str() {
-        assert_eq!(DRAWING_GRID_STR.try_into(), Ok(example_cargo_stacks()));
+        ONCE_LOCK.get_or_init(|| {
+            Solution(CargoStacksSimulation {
+                cargo_stacks: cargo_stacks().clone(),
+                rearrangement_procedure: rearrangement_procedure().clone(),
+            })
+        })
     }
 
     #[test]
-    fn test_rearrangement_procedure_from_str() {
+    fn test_drawing_grid_try_from_str() {
+        assert_eq!(DRAWING_GRID_STR.try_into().as_ref(), Ok(drawing_grid()));
+    }
+
+    #[test]
+    fn test_cargo_stacks_try_from_str() {
+        assert_eq!(DRAWING_GRID_STR.try_into().as_ref(), Ok(cargo_stacks()));
+    }
+
+    #[test]
+    fn test_rearrangement_procedure_try_from_str() {
         assert_eq!(
-            REARRANGEMENT_PROCEDURE_STR.try_into(),
-            Ok(example_rearrangement_procedure())
+            REARRANGEMENT_PROCEDURE_STR.try_into().as_ref(),
+            Ok(rearrangement_procedure())
         )
     }
 
     #[test]
-    fn test_cargo_stacks_simulation_from_str() {
+    fn test_solution_try_from_str() {
         assert_eq!(
-            CARGO_STACKS_SIMULATION_STR.try_into(),
-            Ok(example_cargo_stacks_simulation())
+            CARGO_STACKS_SIMULATION_STR.try_into().as_ref(),
+            Ok(solution())
         )
     }
 
     #[test]
     fn test_crate_mover_9000() {
         assert_eq!(
-            SOLUTION.try_compute_stack_tops::<CrateMover9000>(),
+            solution().try_compute_stack_tops::<CrateMover9000>(),
             Some("CMZ".into())
         );
     }
@@ -774,7 +783,7 @@ mod tests {
     #[test]
     fn test_crate_mover_9001() {
         assert_eq!(
-            SOLUTION.try_compute_stack_tops::<CrateMover9001>(),
+            solution().try_compute_stack_tops::<CrateMover9001>(),
             Some("MCD".into())
         );
     }

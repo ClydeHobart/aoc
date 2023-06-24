@@ -136,7 +136,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const HEIGHT_GRID_STR: &str = "\
         30373\n\
@@ -145,36 +145,38 @@ mod tests {
         33549\n\
         35390";
 
-    lazy_static! {
-        static ref SOLUTION: Solution = solution();
-    }
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
 
-    fn solution() -> Solution {
-        macro_rules! heights { [ $( $height:expr ),* ] => { vec![ $( Height($height), )* ] }; }
+        ONCE_LOCK.get_or_init(|| {
+            macro_rules! heights { [ $( $height:expr ),* ] => { vec![ $( Height($height), )* ] }; }
 
-        const DIMENSIONS: IVec2 = IVec2::new(5_i32, 5_i32);
+            const DIMENSIONS: IVec2 = IVec2::new(5_i32, 5_i32);
 
-        Solution(
-            Grid2D::try_from_cells_and_dimensions(
-                heights![3, 0, 3, 7, 3, 2, 5, 5, 1, 2, 6, 5, 3, 3, 2, 3, 3, 5, 4, 9, 3, 5, 3, 9, 0],
-                DIMENSIONS,
+            Solution(
+                Grid2D::try_from_cells_and_dimensions(
+                    heights![
+                        3, 0, 3, 7, 3, 2, 5, 5, 1, 2, 6, 5, 3, 3, 2, 3, 3, 5, 4, 9, 3, 5, 3, 9, 0
+                    ],
+                    DIMENSIONS,
+                )
+                .unwrap_or_else(|| Grid2D::empty(DIMENSIONS)),
             )
-            .unwrap_or_else(|| Grid2D::empty(DIMENSIONS)),
-        )
+        })
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(HEIGHT_GRID_STR), Ok(solution()))
+        assert_eq!(Solution::try_from(HEIGHT_GRID_STR).as_ref(), Ok(solution()))
     }
 
     #[test]
     fn test_compute_is_visible_count() {
-        assert_eq!(SOLUTION.compute_is_visible_count(), 21_usize);
+        assert_eq!(solution().compute_is_visible_count(), 21_usize);
     }
 
     #[test]
     fn test_compute_scenic_score_max() {
-        assert_eq!(SOLUTION.compute_scenic_score_max(), 8_u32);
+        assert_eq!(solution().compute_scenic_score_max(), 8_u32);
     }
 }

@@ -236,7 +236,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const SOLUTION_STR: &str = concat!(
         "6,10\n",
@@ -262,12 +262,6 @@ mod tests {
         "fold along x=5\n",
     );
 
-    lazy_static! {
-        static ref SOLUTION_AFTER_0_FOLDS: Solution = solution_after_0_folds();
-        static ref SOLUTION_AFTER_1_FOLD: Solution = solution_after_1_fold();
-        static ref SOLUTION_AFTER_2_FOLDS: Solution = solution_after_2_folds();
-    }
-
     macro_rules! solution {
         { [ $( ( $x:expr, $y:expr ), )* ], [ $( $fold:ident($i:expr), )* ], } => {
             Solution {
@@ -277,85 +271,97 @@ mod tests {
         };
     }
 
-    fn solution_after_0_folds() -> Solution {
-        solution! {
-            [
-                (6, 10),
-                (0, 14),
-                (9, 10),
-                (0, 3),
-                (10, 4),
-                (4, 11),
-                (6, 0),
-                (6, 12),
-                (4, 1),
-                (0, 13),
-                (10, 12),
-                (3, 4),
-                (3, 0),
-                (8, 4),
-                (1, 10),
-                (2, 14),
-                (8, 10),
-                (9, 0),
-            ],
-            [ Y(7), X(5), ],
-        }
+    fn solution_after_0_folds() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            solution! {
+                [
+                    (6, 10),
+                    (0, 14),
+                    (9, 10),
+                    (0, 3),
+                    (10, 4),
+                    (4, 11),
+                    (6, 0),
+                    (6, 12),
+                    (4, 1),
+                    (0, 13),
+                    (10, 12),
+                    (3, 4),
+                    (3, 0),
+                    (8, 4),
+                    (1, 10),
+                    (2, 14),
+                    (8, 10),
+                    (9, 0),
+                ],
+                [ Y(7), X(5), ],
+            }
+        })
     }
 
-    fn solution_after_1_fold() -> Solution {
-        solution! {
-            [
-                (0, 0),
-                (2, 0),
-                (3, 0),
-                (6, 0),
-                (9, 0),
-                (0, 1),
-                (4, 1),
-                (6, 2),
-                (10, 2),
-                (0, 3),
-                (4, 3),
-                (1, 4),
-                (3, 4),
-                (6, 4),
-                (8, 4),
-                (9, 4),
-                (10, 4),
-            ],
-            [ X(5), ],
-        }
+    fn solution_after_1_fold() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            solution! {
+                [
+                    (0, 0),
+                    (2, 0),
+                    (3, 0),
+                    (6, 0),
+                    (9, 0),
+                    (0, 1),
+                    (4, 1),
+                    (6, 2),
+                    (10, 2),
+                    (0, 3),
+                    (4, 3),
+                    (1, 4),
+                    (3, 4),
+                    (6, 4),
+                    (8, 4),
+                    (9, 4),
+                    (10, 4),
+                ],
+                [ X(5), ],
+            }
+        })
     }
 
-    fn solution_after_2_folds() -> Solution {
-        solution! {
-            [
-                (0, 0),
-                (0, 1),
-                (0, 2),
-                (0, 3),
-                (0, 4),
-                (1, 0),
-                (1, 4),
-                (2, 0),
-                (2, 4),
-                (3, 0),
-                (3, 4),
-                (4, 0),
-                (4, 1),
-                (4, 2),
-                (4, 3),
-                (4, 4),
-            ],
-            [],
-        }
+    fn solution_after_2_folds() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            solution! {
+                [
+                    (0, 0),
+                    (0, 1),
+                    (0, 2),
+                    (0, 3),
+                    (0, 4),
+                    (1, 0),
+                    (1, 4),
+                    (2, 0),
+                    (2, 4),
+                    (3, 0),
+                    (3, 4),
+                    (4, 0),
+                    (4, 1),
+                    (4, 2),
+                    (4, 3),
+                    (4, 4),
+                ],
+                [],
+            }
+        })
     }
 
     #[test]
     fn test_try_from_str() {
         assert_eq!(
-            Solution::try_from(SOLUTION_STR),
+            Solution::try_from(SOLUTION_STR).as_ref(),
             Ok(solution_after_0_folds())
         )
     }
@@ -363,26 +369,26 @@ mod tests {
     #[test]
     fn test_run_folds() {
         assert_eq!(
-            SOLUTION_AFTER_0_FOLDS.run_folds(Some(1_usize)),
-            *SOLUTION_AFTER_1_FOLD
+            &solution_after_0_folds().run_folds(Some(1_usize)),
+            solution_after_1_fold()
         );
         assert_eq!(
-            SOLUTION_AFTER_1_FOLD.run_folds(Some(1_usize)),
-            *SOLUTION_AFTER_2_FOLDS
+            &solution_after_1_fold().run_folds(Some(1_usize)),
+            solution_after_2_folds()
         );
         assert_eq!(
-            SOLUTION_AFTER_0_FOLDS.run_folds(Some(2_usize)),
-            *SOLUTION_AFTER_2_FOLDS
+            &solution_after_0_folds().run_folds(Some(2_usize)),
+            solution_after_2_folds()
         );
         assert_eq!(
-            SOLUTION_AFTER_0_FOLDS.run_folds(None),
-            *SOLUTION_AFTER_2_FOLDS
+            &solution_after_0_folds().run_folds(None),
+            solution_after_2_folds()
         );
     }
 
     #[test]
     fn test_dot_grid() {
-        let dot_grid_after_0_folds: DotGrid = SOLUTION_AFTER_0_FOLDS.dot_grid();
+        let dot_grid_after_0_folds: DotGrid = solution_after_0_folds().dot_grid();
 
         assert_eq!(dot_grid_after_0_folds.offset, IVec2::ZERO);
         assert_eq!(
@@ -406,7 +412,7 @@ mod tests {
             )
         );
 
-        let dot_grid_after_1_fold: DotGrid = SOLUTION_AFTER_1_FOLD.dot_grid();
+        let dot_grid_after_1_fold: DotGrid = solution_after_1_fold().dot_grid();
 
         assert_eq!(dot_grid_after_1_fold.offset, IVec2::ZERO);
         assert_eq!(
@@ -420,7 +426,7 @@ mod tests {
             )
         );
 
-        let dot_grid_after_2_folds: DotGrid = SOLUTION_AFTER_2_FOLDS.dot_grid();
+        let dot_grid_after_2_folds: DotGrid = solution_after_2_folds().dot_grid();
 
         assert_eq!(dot_grid_after_2_folds.offset, IVec2::ZERO);
         assert_eq!(
@@ -431,6 +437,6 @@ mod tests {
 
     #[test]
     fn test_count_dots_after_1_fold() {
-        assert_eq!(SOLUTION_AFTER_0_FOLDS.count_dots_after_1_fold(), 17_usize);
+        assert_eq!(solution_after_0_folds().count_dots_after_1_fold(), 17_usize);
     }
 }

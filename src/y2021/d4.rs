@@ -276,7 +276,7 @@ impl<'a> TryFrom<&'a str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const BINGO_STR: &str = concat!(
         "7,4,9,5,11,17,23,2,0,14,21,24,10,16,13,6,15,25,12,22,18,20,8,19,3,26,1\n",
@@ -301,18 +301,16 @@ mod tests {
         "\n"
     );
 
-    lazy_static! {
-        static ref SOLUTION: Solution = solution();
-    }
-
-    fn solution() -> Solution {
+    fn solution() -> &'static Solution {
         macro_rules! cells {
             [$( ($board:expr, $pos:expr), )*] => {
                 vec![ $( Cell { board: $board, pos: $pos }, )* ]
             };
         }
 
-        Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| Solution {
             drawn_nums: vec![
                 7, 4, 9, 5, 11, 17, 23, 2, 0, 14, 21, 24, 10, 16, 13, 6, 15, 25, 12, 22, 18, 20, 8,
                 19, 3, 26, 1,
@@ -456,18 +454,18 @@ mod tests {
                 73..74, // 25
                 74..75, // 26
             ],
-        }
+        })
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(BINGO_STR), Ok(solution()))
+        assert_eq!(Solution::try_from(BINGO_STR).as_ref(), Ok(solution()))
     }
 
     #[test]
     fn test_compute_first_scored_winning_board() {
         assert_eq!(
-            SOLUTION.compute_first_scored_winning_board(),
+            solution().compute_first_scored_winning_board(),
             Some(ScoredWinningBoard {
                 board_score: 188_u32,
                 final_score: 4512_u32,
@@ -485,7 +483,7 @@ mod tests {
         const MIDDLE_COLUMN: u32 = Solution::COL_0_MASK << 2_u32;
 
         assert_eq!(
-            SOLUTION
+            solution()
                 .compute_last_scored_winning_board()
                 .map(|mut scored_winning_board| {
                     scored_winning_board.winning_board.board_state &= MIDDLE_COLUMN;

@@ -33,20 +33,18 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const SOLUTION_STR: &str = "";
 
-    lazy_static! {
-        static ref SOLUTION: Solution = solution();
-    }
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
 
-    fn solution() -> Solution {
-        todo!();
+        ONCE_LOCK.get_or_init(|| todo!())
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(SOLUTION_STR), Ok(solution()))
+        // assert_eq!(Solution::try_from(SOLUTION_STR).as_ref(), Ok(solution()))
     }
 }

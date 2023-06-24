@@ -165,6 +165,7 @@ enum ScanCell {
     Sand = b'o',
 }
 
+#[cfg_attr(test, derive(Clone))]
 #[derive(Debug, PartialEq)]
 struct ScanGrid {
     grid: Grid2D<ScanCell>,
@@ -343,7 +344,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const SCAN_STR: &str = concat!(
         "498,4 -> 498,6 -> 496,6\n",
@@ -426,33 +427,33 @@ mod tests {
     const HEIGHT: usize = SCAN_GRID_DIMENSIONS.y as usize;
 
     #[test]
-    fn test_scan_try_from_str() {
-        assert_eq!(SCAN_STR.try_into(), Ok(example_scan()));
+    fn test_solution_try_from_str() {
+        assert_eq!(SCAN_STR.try_into().as_ref(), Ok(solution()));
     }
 
     #[test]
     fn test_scan_scan_grid() {
-        assert_eq!(example_scan().scan_grid(), Ok(example_scan_grid()));
+        assert_eq!(solution().0.scan_grid().as_ref(), Ok(scan_grid()));
     }
 
     #[test]
     fn test_scan_grid_try_from_str() {
         assert_eq!(
-            ScanGrid::try_from_str(SCAN_STR, false),
-            Ok(example_scan_grid())
+            ScanGrid::try_from_str(SCAN_STR, false).as_ref(),
+            Ok(scan_grid())
         );
     }
 
     #[test]
     fn test_scan_grid_string() {
-        assert_eq!(example_scan_grid().string(), Ok(SCAN_GRID_0_STR.into()))
+        assert_eq!(scan_grid().string(), Ok(SCAN_GRID_0_STR.into()))
     }
 
     #[test]
     fn test_scan_grid_add_sand() {
         use AddSandError::*;
 
-        let mut scan_grid: ScanGrid = example_scan_grid();
+        let mut scan_grid: ScanGrid = scan_grid().clone();
 
         assert_eq!(scan_grid.add_sand_unit(), Ok(()));
         assert_eq!(scan_grid.string(), Ok(SCAN_GRID_1_STR.into()));
@@ -467,10 +468,13 @@ mod tests {
         assert_eq!(scan_grid.add_sand_unit(), Err(FellOutOfBounds));
     }
 
-    fn example_scan() -> Scan {
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
         macro_rules! points { [$($x:expr, $y:expr)=>*] => { vec![ $( IVec2::new($x, $y) ),*] }; }
 
-        Scan {
+        Solution(Scan {
             points: [
                 points![498,4 => 498,6 => 496,6],
                 points![503,4 => 502,4 => 502,9 => 494,9],
@@ -482,39 +486,43 @@ mod tests {
             path_boundaries: vec![0_usize, 3_usize, 7_usize],
             min: IVec2::new(494_i32, 0_i32),
             max: IVec2::new(503_i32, 9_i32),
-        }
+        })})
     }
 
-    fn example_scan_grid() -> ScanGrid {
-        use ScanCell::{Air as A, Rock as R, Source as X};
+    fn scan_grid() -> &'static ScanGrid {
+        static ONCE_LOCK: OnceLock<ScanGrid> = OnceLock::new();
 
-        let cells: [[ScanCell; WIDTH]; HEIGHT] = [
-            [A, A, A, A, A, A, X, A, A, A],
-            [A, A, A, A, A, A, A, A, A, A],
-            [A, A, A, A, A, A, A, A, A, A],
-            [A, A, A, A, A, A, A, A, A, A],
-            [A, A, A, A, R, A, A, A, R, R],
-            [A, A, A, A, R, A, A, A, R, A],
-            [A, A, R, R, R, A, A, A, R, A],
-            [A, A, A, A, A, A, A, A, R, A],
-            [A, A, A, A, A, A, A, A, R, A],
-            [R, R, R, R, R, R, R, R, R, A],
-        ];
+        ONCE_LOCK.get_or_init(|| {
+            use ScanCell::{Air as A, Rock as R, Source as X};
 
-        let mut scan_grid: ScanGrid = ScanGrid {
-            grid: Grid2D::default(SCAN_GRID_DIMENSIONS),
-            source: IVec2::new(6_i32, 0_i32),
-        };
+            let cells: [[ScanCell; WIDTH]; HEIGHT] = [
+                [A, A, A, A, A, A, X, A, A, A],
+                [A, A, A, A, A, A, A, A, A, A],
+                [A, A, A, A, A, A, A, A, A, A],
+                [A, A, A, A, A, A, A, A, A, A],
+                [A, A, A, A, R, A, A, A, R, R],
+                [A, A, A, A, R, A, A, A, R, A],
+                [A, A, R, R, R, A, A, A, R, A],
+                [A, A, A, A, A, A, A, A, R, A],
+                [A, A, A, A, A, A, A, A, R, A],
+                [R, R, R, R, R, R, R, R, R, A],
+            ];
 
-        for (src, dest) in cells
-            .iter()
-            .map(|row| row.iter())
-            .flatten()
-            .zip(scan_grid.grid.cells_mut().iter_mut())
-        {
-            *dest = *src;
-        }
+            let mut scan_grid: ScanGrid = ScanGrid {
+                grid: Grid2D::default(SCAN_GRID_DIMENSIONS),
+                source: IVec2::new(6_i32, 0_i32),
+            };
 
-        scan_grid
+            for (src, dest) in cells
+                .iter()
+                .map(|row| row.iter())
+                .flatten()
+                .zip(scan_grid.grid.cells_mut().iter_mut())
+            {
+                *dest = *src;
+            }
+
+            scan_grid
+        })
     }
 }

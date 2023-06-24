@@ -328,7 +328,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const INSTRUCTIONS_STR_1: &str = "\
         noop\n\
@@ -482,16 +482,177 @@ mod tests {
         noop\n\
         noop";
 
+    fn solution_1() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            use Instruction::*;
+
+            Solution(Instructions(vec![Noop, AddX(3), AddX(-5)]))
+        })
+    }
+
+    fn solution_2() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            use Instruction::*;
+
+            Solution(Instructions(vec![
+                AddX(15),
+                AddX(-11),
+                AddX(6),
+                AddX(-3),
+                AddX(5),
+                AddX(-1),
+                AddX(-8),
+                AddX(13),
+                AddX(4),
+                Noop,
+                AddX(-1),
+                AddX(5),
+                AddX(-1),
+                AddX(5),
+                AddX(-1),
+                AddX(5),
+                AddX(-1),
+                AddX(5),
+                AddX(-1),
+                AddX(-35),
+                AddX(1),
+                AddX(24),
+                AddX(-19),
+                AddX(1),
+                AddX(16),
+                AddX(-11),
+                Noop,
+                Noop,
+                AddX(21),
+                AddX(-15),
+                Noop,
+                Noop,
+                AddX(-3),
+                AddX(9),
+                AddX(1),
+                AddX(-3),
+                AddX(8),
+                AddX(1),
+                AddX(5),
+                Noop,
+                Noop,
+                Noop,
+                Noop,
+                Noop,
+                AddX(-36),
+                Noop,
+                AddX(1),
+                AddX(7),
+                Noop,
+                Noop,
+                Noop,
+                AddX(2),
+                AddX(6),
+                Noop,
+                Noop,
+                Noop,
+                Noop,
+                Noop,
+                AddX(1),
+                Noop,
+                Noop,
+                AddX(7),
+                AddX(1),
+                Noop,
+                AddX(-13),
+                AddX(13),
+                AddX(7),
+                Noop,
+                AddX(1),
+                AddX(-33),
+                Noop,
+                Noop,
+                Noop,
+                AddX(2),
+                Noop,
+                Noop,
+                Noop,
+                AddX(8),
+                Noop,
+                AddX(-1),
+                AddX(2),
+                AddX(1),
+                Noop,
+                AddX(17),
+                AddX(-9),
+                AddX(1),
+                AddX(1),
+                AddX(-3),
+                AddX(11),
+                Noop,
+                Noop,
+                AddX(1),
+                Noop,
+                AddX(1),
+                Noop,
+                Noop,
+                AddX(-13),
+                AddX(-19),
+                AddX(1),
+                AddX(3),
+                AddX(26),
+                AddX(-30),
+                AddX(12),
+                AddX(-1),
+                AddX(3),
+                AddX(1),
+                Noop,
+                Noop,
+                Noop,
+                AddX(-9),
+                AddX(18),
+                AddX(1),
+                AddX(2),
+                Noop,
+                Noop,
+                AddX(9),
+                Noop,
+                Noop,
+                Noop,
+                AddX(-1),
+                AddX(2),
+                AddX(-37),
+                AddX(1),
+                AddX(3),
+                Noop,
+                AddX(15),
+                AddX(-21),
+                AddX(22),
+                AddX(-6),
+                AddX(1),
+                Noop,
+                AddX(2),
+                AddX(1),
+                Noop,
+                AddX(-10),
+                Noop,
+                Noop,
+                AddX(20),
+                AddX(1),
+                AddX(2),
+                AddX(2),
+                AddX(-6),
+                AddX(-11),
+                Noop,
+                Noop,
+                Noop,
+            ]))
+        })
+    }
+
     #[test]
     fn test_instructions_try_from_str() {
-        assert_eq!(
-            Instructions::try_from(INSTRUCTIONS_STR_1),
-            Ok(example_1_instructions())
-        );
-        assert_eq!(
-            Instructions::try_from(INSTRUCTIONS_STR_2),
-            Ok(example_2_instructions())
-        );
+        assert_eq!(INSTRUCTIONS_STR_1.try_into().as_ref(), Ok(solution_1()));
+        assert_eq!(INSTRUCTIONS_STR_2.try_into().as_ref(), Ok(solution_2()));
     }
 
     #[test]
@@ -499,7 +660,7 @@ mod tests {
         let cpu_state: CpuState = CpuState::default();
 
         let signal_strengths_where_cycle_mod_40_is_20: Vec<i32> = cpu_state
-            .execute(example_2_instructions().iter())
+            .execute(solution_2().0.iter())
             .filter(CpuState::cycle_mod_40_is_20)
             .map(CpuState::signal_strength)
             .collect();
@@ -528,167 +689,8 @@ mod tests {
 
         let mut crt: Crt = Crt::new();
 
-        crt.image(example_2_instructions().iter());
+        crt.image(solution_2().0.iter());
 
         assert_eq!(crt.try_into(), Ok(CRT_STRING.to_owned()));
-    }
-
-    fn example_1_instructions() -> Instructions {
-        use Instruction::*;
-
-        Instructions(vec![Noop, AddX(3), AddX(-5)])
-    }
-
-    fn example_2_instructions() -> Instructions {
-        use Instruction::*;
-
-        Instructions(vec![
-            AddX(15),
-            AddX(-11),
-            AddX(6),
-            AddX(-3),
-            AddX(5),
-            AddX(-1),
-            AddX(-8),
-            AddX(13),
-            AddX(4),
-            Noop,
-            AddX(-1),
-            AddX(5),
-            AddX(-1),
-            AddX(5),
-            AddX(-1),
-            AddX(5),
-            AddX(-1),
-            AddX(5),
-            AddX(-1),
-            AddX(-35),
-            AddX(1),
-            AddX(24),
-            AddX(-19),
-            AddX(1),
-            AddX(16),
-            AddX(-11),
-            Noop,
-            Noop,
-            AddX(21),
-            AddX(-15),
-            Noop,
-            Noop,
-            AddX(-3),
-            AddX(9),
-            AddX(1),
-            AddX(-3),
-            AddX(8),
-            AddX(1),
-            AddX(5),
-            Noop,
-            Noop,
-            Noop,
-            Noop,
-            Noop,
-            AddX(-36),
-            Noop,
-            AddX(1),
-            AddX(7),
-            Noop,
-            Noop,
-            Noop,
-            AddX(2),
-            AddX(6),
-            Noop,
-            Noop,
-            Noop,
-            Noop,
-            Noop,
-            AddX(1),
-            Noop,
-            Noop,
-            AddX(7),
-            AddX(1),
-            Noop,
-            AddX(-13),
-            AddX(13),
-            AddX(7),
-            Noop,
-            AddX(1),
-            AddX(-33),
-            Noop,
-            Noop,
-            Noop,
-            AddX(2),
-            Noop,
-            Noop,
-            Noop,
-            AddX(8),
-            Noop,
-            AddX(-1),
-            AddX(2),
-            AddX(1),
-            Noop,
-            AddX(17),
-            AddX(-9),
-            AddX(1),
-            AddX(1),
-            AddX(-3),
-            AddX(11),
-            Noop,
-            Noop,
-            AddX(1),
-            Noop,
-            AddX(1),
-            Noop,
-            Noop,
-            AddX(-13),
-            AddX(-19),
-            AddX(1),
-            AddX(3),
-            AddX(26),
-            AddX(-30),
-            AddX(12),
-            AddX(-1),
-            AddX(3),
-            AddX(1),
-            Noop,
-            Noop,
-            Noop,
-            AddX(-9),
-            AddX(18),
-            AddX(1),
-            AddX(2),
-            Noop,
-            Noop,
-            AddX(9),
-            Noop,
-            Noop,
-            Noop,
-            AddX(-1),
-            AddX(2),
-            AddX(-37),
-            AddX(1),
-            AddX(3),
-            Noop,
-            AddX(15),
-            AddX(-21),
-            AddX(22),
-            AddX(-6),
-            AddX(1),
-            Noop,
-            AddX(2),
-            AddX(1),
-            Noop,
-            AddX(-10),
-            Noop,
-            Noop,
-            AddX(20),
-            AddX(1),
-            AddX(2),
-            AddX(2),
-            AddX(-6),
-            AddX(-11),
-            Noop,
-            Noop,
-            Noop,
-        ])
     }
 }

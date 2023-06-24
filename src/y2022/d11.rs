@@ -492,7 +492,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const MONKEY_NOTES_STR: &str = concat!(
         "Monkey 0:\n",
@@ -524,14 +524,60 @@ mod tests {
         "    If false: throw to monkey 1"
     );
 
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            use {Operand::*, Operation::*};
+
+            Solution(MonkeyNotes {
+                memos: vec![
+                    MonkeyMemo {
+                        items: vec![79, 98],
+                        operation: Expression::new(Old, Multiply, Constant(19)),
+                        test_divisor: 23,
+                        if_true: 2,
+                        if_false: 3,
+                        inspected: 0,
+                    },
+                    MonkeyMemo {
+                        items: vec![54, 65, 75, 74],
+                        operation: Expression::new(Old, Add, Constant(6)),
+                        test_divisor: 19,
+                        if_true: 2,
+                        if_false: 0,
+                        inspected: 0,
+                    },
+                    MonkeyMemo {
+                        items: vec![79, 60, 97],
+                        operation: Expression::new(Old, Multiply, Old),
+                        test_divisor: 13,
+                        if_true: 1,
+                        if_false: 3,
+                        inspected: 0,
+                    },
+                    MonkeyMemo {
+                        items: vec![74],
+                        operation: Expression::new(Old, Add, Constant(3)),
+                        test_divisor: 17,
+                        if_true: 0,
+                        if_false: 1,
+                        inspected: 0,
+                    },
+                ],
+                modulus: 96577,
+            })
+        })
+    }
+
     #[test]
-    fn test_monkey_notes_try_from_str() {
-        assert_eq!(MONKEY_NOTES_STR.try_into(), Ok(example_monkey_notes()));
+    fn test_try_from_str() {
+        assert_eq!(MONKEY_NOTES_STR.try_into().as_ref(), Ok(solution()));
     }
 
     #[test]
     fn test_run_rounds() {
-        let mut monkey_notes: MonkeyNotes = example_monkey_notes();
+        let mut monkey_notes: MonkeyNotes = solution().0.clone();
 
         assert_eq!(
             (0_usize..10_usize)
@@ -633,34 +679,30 @@ mod tests {
 
     #[test]
     fn test_monkey_business() {
-        let mut monkey_notes: MonkeyNotes = example_monkey_notes();
-
-        monkey_notes.run_rounds(20_usize);
-
-        assert_eq!(monkey_notes.monkey_business(), 10605_usize);
+        assert_eq!(solution().monkey_business(), 10605_usize);
     }
 
     #[test]
     fn test_run_rounds_with_worry_and_modulus() {
-        let mut monkey_notes: MonkeyNotes = example_monkey_notes();
+        let mut monkey_notes_1: MonkeyNotes = solution().0.clone();
 
-        monkey_notes.run_rounds_with_worry_and_modulus(1_usize);
+        monkey_notes_1.run_rounds_with_worry_and_modulus(1_usize);
 
-        assert_eq!(monkey_notes.inspected_counts(), vec![2, 4, 3, 6]);
+        assert_eq!(monkey_notes_1.inspected_counts(), vec![2, 4, 3, 6]);
 
-        monkey_notes.run_rounds_with_worry_and_modulus(19_usize);
+        monkey_notes_1.run_rounds_with_worry_and_modulus(19_usize);
 
-        assert_eq!(monkey_notes.inspected_counts(), vec![99, 97, 8, 103]);
+        assert_eq!(monkey_notes_1.inspected_counts(), vec![99, 97, 8, 103]);
 
-        let mut monkey_notes: MonkeyNotes = example_monkey_notes();
+        let mut monkey_notes_2: MonkeyNotes = solution().0.clone();
 
         assert_eq!(
             (0_usize..10_usize)
                 .into_iter()
                 .map(|_| -> Vec<usize> {
-                    monkey_notes.run_rounds_with_worry_and_modulus(1_000_usize);
+                    monkey_notes_2.run_rounds_with_worry_and_modulus(1_000_usize);
 
-                    monkey_notes.inspected_counts()
+                    monkey_notes_2.inspected_counts()
                 })
                 .collect::<Vec<Vec<usize>>>(),
             vec![
@@ -676,47 +718,9 @@ mod tests {
                 vec![52166, 47830, 1938, 52013]
             ]
         );
-    }
-
-    fn example_monkey_notes() -> MonkeyNotes {
-        use {Operand::*, Operation::*};
-
-        MonkeyNotes {
-            memos: vec![
-                MonkeyMemo {
-                    items: vec![79, 98],
-                    operation: Expression::new(Old, Multiply, Constant(19)),
-                    test_divisor: 23,
-                    if_true: 2,
-                    if_false: 3,
-                    inspected: 0,
-                },
-                MonkeyMemo {
-                    items: vec![54, 65, 75, 74],
-                    operation: Expression::new(Old, Add, Constant(6)),
-                    test_divisor: 19,
-                    if_true: 2,
-                    if_false: 0,
-                    inspected: 0,
-                },
-                MonkeyMemo {
-                    items: vec![79, 60, 97],
-                    operation: Expression::new(Old, Multiply, Old),
-                    test_divisor: 13,
-                    if_true: 1,
-                    if_false: 3,
-                    inspected: 0,
-                },
-                MonkeyMemo {
-                    items: vec![74],
-                    operation: Expression::new(Old, Add, Constant(3)),
-                    test_divisor: 17,
-                    if_true: 0,
-                    if_false: 1,
-                    inspected: 0,
-                },
-            ],
-            modulus: 96577,
-        }
+        assert_eq!(
+            solution().monkey_business_with_worry_and_modulus(),
+            2_713_310_158_usize
+        );
     }
 }

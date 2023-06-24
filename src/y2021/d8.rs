@@ -443,7 +443,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const ENTRY_STR: &str =
         "acedgfb cdfbe gcdfa fbcad dab cefabd cdfgeb eafb cagedb ab | cdfeb fcadb cdfeb cdbaf\n";
@@ -460,45 +460,48 @@ mod tests {
         "gcafb gcf dcaebfg ecagb gf abcdeg gaef cafbge fdbac fegbdc | fgae cfgab fg bagce\n",
     );
 
-    lazy_static! {
-        static ref ENTRY: Entry = new_entry();
-        static ref SOLUTION: Solution = solution();
-    }
+    fn entry() -> &'static Entry {
+        static ONCE_LOCK: OnceLock<Entry> = OnceLock::new();
 
-    fn solution() -> Solution {
-        Solution::try_from(ENTRIES_STR).unwrap_or(Solution(Vec::new()))
-    }
-
-    fn new_entry() -> Entry {
-        macro_rules! entry {
-            [ $( $sp:expr ),+ ] => { {
-                let sps = [ $( SignalPattern($sp) ),+ ];
-
-                let mut entry: Entry = Entry {
-                    unique_signal_patterns: UniqueSignalPatterns(Default::default()),
-                    four_digit_output_value: FourDigitOutputValue(Default::default()),
-                };
-
-                for index in 0_usize..Solution::DIGITS {
-                    entry.unique_signal_patterns.0[index] = sps[index];
-                }
-
-                for index in 0_usize..FourDigitOutputValue::DIGITS {
-                    entry.four_digit_output_value.0[index] = sps[index + Solution::DIGITS];
-                }
-
-                entry
-            } };
+        ONCE_LOCK.get_or_init(|| {
+            macro_rules! signal_patterns {
+            [ $( $sp:expr ),* $(,)? ] => {
+                [ $( SignalPattern($sp) ),* ]
+            };
         }
 
-        entry![0x03, 0x0B, 0x33, 0x3E, 0x6D, 0x2F, 0x3F, 0x7E, 0x5F, 0x7F, 0x3E, 0x2F, 0x3E, 0x2F]
+            let sps = signal_patterns![
+                0x03, 0x0B, 0x33, 0x3E, 0x6D, 0x2F, 0x3F, 0x7E, 0x5F, 0x7F, 0x3E, 0x2F, 0x3E, 0x2F
+            ];
+
+            let mut entry: Entry = Entry {
+                unique_signal_patterns: UniqueSignalPatterns(Default::default()),
+                four_digit_output_value: FourDigitOutputValue(Default::default()),
+            };
+
+            for index in 0_usize..Solution::DIGITS {
+                entry.unique_signal_patterns.0[index] = sps[index];
+            }
+
+            for index in 0_usize..FourDigitOutputValue::DIGITS {
+                entry.four_digit_output_value.0[index] = sps[index + Solution::DIGITS];
+            }
+
+            entry
+        })
+    }
+
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| Solution::try_from(ENTRIES_STR).unwrap_or(Solution(Vec::new())))
     }
 
     #[test]
     fn test_entry_try_from_str() {
         assert_eq!(
-            Entry::parse(ENTRY_STR).map(|(_, entry)| entry),
-            Ok(new_entry())
+            Entry::parse(ENTRY_STR).map(|(_, entry)| entry).as_ref(),
+            Ok(entry())
         );
     }
 
@@ -511,21 +514,19 @@ mod tests {
         }
 
         assert_eq!(
-            Solution::try_from(ENTRIES_STR).map(|solution| {
-                solution
-                    .0
-                    .iter()
-                    .flat_map(|entry| {
-                        entry
-                            .unique_signal_patterns
-                            .0
-                            .iter()
-                            .chain(entry.four_digit_output_value.0.iter())
-                    })
-                    .map(|sp| sp.0.count_ones())
-                    .collect()
-            }),
-            Ok(solution_ones![
+            solution()
+                .0
+                .iter()
+                .flat_map(|entry| {
+                    entry
+                        .unique_signal_patterns
+                        .0
+                        .iter()
+                        .chain(entry.four_digit_output_value.0.iter())
+                })
+                .map(|sp| sp.0.count_ones())
+                .collect::<Vec<u32>>(),
+            solution_ones![
                 (2, 3, 4, 5, 5, 5, 6, 6, 6, 7; 7, 5, 6, 4),
                 (2, 3, 4, 5, 5, 5, 6, 6, 6, 7; 6, 3, 7, 2),
                 (2, 3, 4, 5, 5, 5, 6, 6, 6, 7; 2, 2, 6, 3),
@@ -536,19 +537,19 @@ mod tests {
                 (2, 3, 4, 5, 5, 5, 6, 6, 6, 7; 2, 6, 5, 5),
                 (2, 3, 4, 5, 5, 5, 6, 6, 6, 7; 7, 3, 2, 3),
                 (2, 3, 4, 5, 5, 5, 6, 6, 6, 7; 4, 5, 2, 5),
-            ])
+            ]
         )
     }
 
     #[test]
     fn test_count_unique_segment_counts() {
-        assert_eq!(SOLUTION.count_unique_segment_counts(), 26_usize);
+        assert_eq!(solution().count_unique_segment_counts(), 26_usize);
     }
 
     #[test]
     fn test_unique_signal_patterns_cipher() {
         assert_eq!(
-            ENTRY.unique_signal_patterns.cipher(),
+            entry().unique_signal_patterns.cipher(),
             Cipher([
                 0b0000100_u8,
                 0b0100000_u8,
@@ -566,7 +567,7 @@ mod tests {
         macro_rules! somes { [ $( $value:expr ),* ] => { vec![ $( Some($value), )* ] }; }
 
         assert_eq!(
-            SOLUTION
+            solution()
                 .0
                 .iter()
                 .map(|entry| entry.decipher())
@@ -577,6 +578,6 @@ mod tests {
 
     #[test]
     fn test_sum_values() {
-        assert_eq!(SOLUTION.sum_values(), Some(61229));
+        assert_eq!(solution().sum_values(), Some(61229));
     }
 }

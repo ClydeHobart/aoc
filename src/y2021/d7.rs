@@ -92,21 +92,19 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const POSITIONS_STR: &str = "16,1,2,0,4,2,7,1,2,14";
 
-    lazy_static! {
-        static ref SOLUTION: Solution = solution();
-    }
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
 
-    fn solution() -> Solution {
-        Solution(vec![0, 1, 1, 2, 2, 2, 4, 7, 14, 16])
+        ONCE_LOCK.get_or_init(|| Solution(vec![0, 1, 1, 2, 2, 2, 4, 7, 14, 16]))
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(POSITIONS_STR), Ok(solution()));
+        assert_eq!(Solution::try_from(POSITIONS_STR).as_ref(), Ok(solution()));
     }
 
     mod linear {
@@ -120,19 +118,19 @@ mod tests {
                 (3_u16, 39_u32),
                 (10_u16, 71_u32),
             ] {
-                assert_eq!(SOLUTION.total_linear_cost(pos), cost);
+                assert_eq!(solution().total_linear_cost(pos), cost);
             }
         }
 
         #[test]
         fn test_minimum_total_linear_cost() {
-            assert_eq!(SOLUTION.minimum_total_linear_cost(), 37_u32);
+            assert_eq!(solution().minimum_total_linear_cost(), 37_u32);
         }
 
         #[test]
         fn test_total_linear_costs() {
             assert_eq!(
-                SOLUTION.total_linear_costs().collect::<Vec<u32>>(),
+                solution().total_linear_costs().collect::<Vec<u32>>(),
                 vec![49, 41, 37, 39, 41, 45, 49, 53, 59, 65, 71, 77, 83, 89, 95, 103, 111]
             );
         }
@@ -144,19 +142,19 @@ mod tests {
         #[test]
         fn test_total_triangular_cost() {
             for (pos, cost) in [(5_u16, 168_u32), (2_u16, 206_u32)] {
-                assert_eq!(SOLUTION.total_triangular_cost(pos), cost);
+                assert_eq!(solution().total_triangular_cost(pos), cost);
             }
         }
 
         #[test]
         fn test_minimum_total_triangular_cost() {
-            assert_eq!(SOLUTION.minimum_total_triangular_cost(), 168_u32);
+            assert_eq!(solution().minimum_total_triangular_cost(), 168_u32);
         }
 
         #[test]
         fn test_total_triangular_costs() {
             assert_eq!(
-                SOLUTION.total_triangular_costs().collect::<Vec<u32>>(),
+                solution().total_triangular_costs().collect::<Vec<u32>>(),
                 vec![
                     290, 242, 206, 183, 170, 168, 176, 194, 223, 262, 311, 370, 439, 518, 607, 707,
                     817,

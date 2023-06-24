@@ -1,6 +1,6 @@
 use {
     crate::*,
-    lazy_static::lazy_static,
+    std::sync::OnceLock,
     std::{
         cmp::Ordering,
         num::ParseIntError,
@@ -20,12 +20,19 @@ enum Packet {
     Int(u32),
 }
 
-lazy_static! {
-    static ref DIVIDER_2: Packet = Packet::List(vec![Packet::List(vec![Packet::Int(2_u32)])]);
-    static ref DIVIDER_6: Packet = Packet::List(vec![Packet::List(vec![Packet::Int(6_u32)])]);
-}
-
 impl Packet {
+    fn divider_2() -> &'static Self {
+        static ONCE_LOCK: OnceLock<Packet> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| Self::List(vec![Self::List(vec![Self::Int(2_u32)])]))
+    }
+
+    fn divider_6() -> &'static Self {
+        static ONCE_LOCK: OnceLock<Packet> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| Self::List(vec![Self::List(vec![Self::Int(6_u32)])]))
+    }
+
     fn slice_cmp(
         left_slice: &[Packet],
         right_slice: &[Packet],
@@ -228,26 +235,22 @@ impl<'s> TryFrom<&'s str> for PacketPairs {
     }
 }
 
+#[cfg_attr(test, derive(Clone))]
 #[derive(Debug, PartialEq, PartialOrd)]
 struct Packets(Vec<Packet>);
 
 impl Packets {
     fn decoder_key(&mut self) -> usize {
-        self.0.push(DIVIDER_2.clone());
-        self.0.push(DIVIDER_6.clone());
-        self.0
-            .sort_unstable_by(|left, right| left.partial_cmp(&right).unwrap_or(Ordering::Equal));
-
         (self
             .0
             .iter()
-            .position(|packet| *packet == *DIVIDER_2)
+            .position(|packet| *packet == *Packet::divider_2())
             .unwrap()
             + 1_usize)
             * (self
                 .0
                 .iter()
-                .position(|packet| *packet == *DIVIDER_6)
+                .position(|packet| *packet == *Packet::divider_6())
                 .unwrap()
                 + 1_usize)
     }
@@ -255,14 +258,22 @@ impl Packets {
 
 impl From<PacketPairs> for Packets {
     fn from(packet_pairs: PacketPairs) -> Self {
-        Self(
+        let mut packets: Self = Self(
             packet_pairs
                 .0
                 .into_iter()
                 .map(|packet_pair| [packet_pair.left, packet_pair.right].into_iter())
                 .flatten()
                 .collect(),
-        )
+        );
+
+        packets.0.push(Packet::divider_2().clone());
+        packets.0.push(Packet::divider_6().clone());
+        packets
+            .0
+            .sort_unstable_by(|left, right| left.partial_cmp(&right).unwrap_or(Ordering::Equal));
+
+        packets
     }
 }
 
@@ -348,7 +359,7 @@ mod tests {
         "[1,[2,[3,[4,[5,6,7]]]],8,9]\n",
         "[1,[2,[3,[4,[5,6,0]]]],8,9]",
     );
-    const PACKETS_WITH_DIVIDER_PACKETS_STR: &str = concat!(
+    const PACKETS_STR: &str = concat!(
         "[]\n",
         "[[]]\n",
         "[[[]]]\n",
@@ -369,36 +380,124 @@ mod tests {
         "[9]",
     );
 
-    lazy_static! {
-        static ref SOLUTION: Solution = example_solution();
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            Solution(PacketPairs(vec![
+                PacketPair {
+                    left: l![I(1), I(1), I(3), I(1), I(1)],
+                    right: l![I(1), I(1), I(5), I(1), I(1)],
+                },
+                PacketPair {
+                    left: l![l![I(1)], l![I(2), I(3), I(4)]],
+                    right: l![l![I(1)], I(4)],
+                },
+                PacketPair {
+                    left: l![I(9)],
+                    right: l![l![I(8), I(7), I(6)]],
+                },
+                PacketPair {
+                    left: l![l![I(4), I(4)], I(4), I(4)],
+                    right: l![l![I(4), I(4)], I(4), I(4), I(4)],
+                },
+                PacketPair {
+                    left: l![I(7), I(7), I(7), I(7)],
+                    right: l![I(7), I(7), I(7)],
+                },
+                PacketPair {
+                    left: l![],
+                    right: l![I(3)],
+                },
+                PacketPair {
+                    left: l![l![l![]]],
+                    right: l![l![]],
+                },
+                PacketPair {
+                    left: l![
+                        I(1),
+                        l![I(2), l![I(3), l![I(4), l![I(5), I(6), I(7)]]]],
+                        I(8),
+                        I(9)
+                    ],
+                    right: l![
+                        I(1),
+                        l![I(2), l![I(3), l![I(4), l![I(5), I(6), I(0)]]]],
+                        I(8),
+                        I(9)
+                    ],
+                },
+            ]))
+        })
+    }
+
+    fn packets() -> &'static Packets {
+        static ONCE_LOCK: OnceLock<Packets> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            Packets(vec![
+                l![],
+                l![l![]],
+                l![l![l![]]],
+                l![I(1), I(1), I(3), I(1), I(1)],
+                l![I(1), I(1), I(5), I(1), I(1)],
+                l![l![I(1)], l![I(2), I(3), I(4)]],
+                l![
+                    I(1),
+                    l![I(2), l![I(3), l![I(4), l![I(5), I(6), I(0)]]]],
+                    I(8),
+                    I(9)
+                ],
+                l![
+                    I(1),
+                    l![I(2), l![I(3), l![I(4), l![I(5), I(6), I(7)]]]],
+                    I(8),
+                    I(9)
+                ],
+                l![l![I(1)], I(4)],
+                l![l![I(2)]],
+                l![I(3)],
+                l![l![I(4), I(4)], I(4), I(4)],
+                l![l![I(4), I(4)], I(4), I(4), I(4)],
+                l![l![I(6)]],
+                l![I(7), I(7), I(7)],
+                l![I(7), I(7), I(7), I(7)],
+                l![l![I(8), I(7), I(6)]],
+                l![I(9)],
+            ])
+        })
     }
 
     #[test]
-    fn test_packet_pairs_from_str() {
-        assert_eq!(PACKET_PAIRS_STR.try_into(), Ok(example_packet_pairs()));
+    fn test_solution_try_from_str() {
+        let real_solution: Result<Solution, PacketPairParseError> = PACKET_PAIRS_STR.try_into();
+
+        pretty_assert_eq!(real_solution.as_ref(), Ok(solution()));
     }
 
     #[test]
     fn test_packet_partial_cmp() {
         use Ordering::*;
 
+        let orderings: Vec<Ordering> = solution()
+            .0
+             .0 // How do you live with yourself, rust_fmt?
+            .iter()
+            .map(PacketPair::partial_cmp)
+            .map(Option::unwrap)
+            .collect::<Vec<Ordering>>();
+
         assert_eq!(
-            example_packet_pairs()
-                .0
-                .iter()
-                .map(PacketPair::partial_cmp)
-                .map(Option::unwrap)
-                .collect::<Vec<Ordering>>(),
+            orderings,
             vec![Less, Less, Greater, Less, Greater, Less, Greater, Greater]
         )
     }
 
     #[test]
-    fn test_packets_with_divider_packets_from_str() {
-        assert_eq!(
-            PACKETS_WITH_DIVIDER_PACKETS_STR.try_into(),
-            Ok(example_packets_with_divider_packets())
-        )
+    fn test_packets_try_from_str() {
+        let real_packets: Result<Packets, PacketParseError> = PACKETS_STR.try_into();
+
+        pretty_assert_eq!(real_packets.as_ref(), Ok(packets()));
     }
 
     #[test]
@@ -410,99 +509,19 @@ mod tests {
     }
 
     #[test]
-    fn test_decoder_key() {
-        let mut packets: Packets = example_packet_pairs().into();
+    fn test_packets_from_packet_pairs() {
+        let real_packets: Packets = Packets::from(solution().0.clone());
 
-        assert_eq!(packets.decoder_key(), 140_usize);
-        assert_eq!(packets, example_packets_with_divider_packets());
+        pretty_assert_eq!(&real_packets, packets());
     }
 
     #[test]
     fn test_right_order_pair_index_sum() {
-        assert_eq!(SOLUTION.right_order_pair_index_sum(), 13_usize);
+        assert_eq!(solution().right_order_pair_index_sum(), 13_usize);
     }
 
-    fn example_packet_pairs() -> PacketPairs {
-        PacketPairs(vec![
-            PacketPair {
-                left: l![I(1), I(1), I(3), I(1), I(1)],
-                right: l![I(1), I(1), I(5), I(1), I(1)],
-            },
-            PacketPair {
-                left: l![l![I(1)], l![I(2), I(3), I(4)]],
-                right: l![l![I(1)], I(4)],
-            },
-            PacketPair {
-                left: l![I(9)],
-                right: l![l![I(8), I(7), I(6)]],
-            },
-            PacketPair {
-                left: l![l![I(4), I(4)], I(4), I(4)],
-                right: l![l![I(4), I(4)], I(4), I(4), I(4)],
-            },
-            PacketPair {
-                left: l![I(7), I(7), I(7), I(7)],
-                right: l![I(7), I(7), I(7)],
-            },
-            PacketPair {
-                left: l![],
-                right: l![I(3)],
-            },
-            PacketPair {
-                left: l![l![l![]]],
-                right: l![l![]],
-            },
-            PacketPair {
-                left: l![
-                    I(1),
-                    l![I(2), l![I(3), l![I(4), l![I(5), I(6), I(7)]]]],
-                    I(8),
-                    I(9)
-                ],
-                right: l![
-                    I(1),
-                    l![I(2), l![I(3), l![I(4), l![I(5), I(6), I(0)]]]],
-                    I(8),
-                    I(9)
-                ],
-            },
-        ])
-    }
-
-    fn example_packets_with_divider_packets() -> Packets {
-        Packets(vec![
-            l![],
-            l![l![]],
-            l![l![l![]]],
-            l![I(1), I(1), I(3), I(1), I(1)],
-            l![I(1), I(1), I(5), I(1), I(1)],
-            l![l![I(1)], l![I(2), I(3), I(4)]],
-            l![
-                I(1),
-                l![I(2), l![I(3), l![I(4), l![I(5), I(6), I(0)]]]],
-                I(8),
-                I(9)
-            ],
-            l![
-                I(1),
-                l![I(2), l![I(3), l![I(4), l![I(5), I(6), I(7)]]]],
-                I(8),
-                I(9)
-            ],
-            l![l![I(1)], I(4)],
-            l![l![I(2)]],
-            l![I(3)],
-            l![l![I(4), I(4)], I(4), I(4)],
-            l![l![I(4), I(4)], I(4), I(4), I(4)],
-            l![l![I(6)]],
-            l![I(7), I(7), I(7)],
-            l![I(7), I(7), I(7), I(7)],
-            l![l![I(8), I(7), I(6)]],
-            l![I(9)],
-        ])
-    }
-
-    fn example_solution() -> Solution {
-        Solution(example_packet_pairs())
+    #[test]
+    fn test_decoder_key() {
+        assert_eq!(packets().clone().decoder_key(), 140_usize);
     }
 }

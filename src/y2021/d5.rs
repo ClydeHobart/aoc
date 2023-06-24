@@ -231,7 +231,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const LINES_STR: &str = concat!(
         "0,9 -> 5,9\n",
@@ -246,11 +246,7 @@ mod tests {
         "5,5 -> 8,2\n",
     );
 
-    lazy_static! {
-        static ref SOLUTION: Solution = solution();
-    }
-
-    fn solution() -> Solution {
+    fn solution() -> &'static Solution {
         macro_rules! solution {
             [
                 $( ($ax:expr, $ay:expr) -> ($bx:expr, $by:expr) ),* ;
@@ -263,29 +259,36 @@ mod tests {
             } };
         }
 
-        solution![
-            (0, 9) -> (5, 9),
-            (8, 0) -> (0, 8),
-            (9, 4) -> (3, 4),
-            (2, 2) -> (2, 1),
-            (7, 0) -> (7, 4),
-            (6, 4) -> (2, 0),
-            (0, 9) -> (2, 9),
-            (3, 4) -> (1, 4),
-            (0, 0) -> (8, 8),
-            (5, 5) -> (8, 2);
-            (0, 0)..(10, 10)
-        ]
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            solution![
+                (0, 9) -> (5, 9),
+                (8, 0) -> (0, 8),
+                (9, 4) -> (3, 4),
+                (2, 2) -> (2, 1),
+                (7, 0) -> (7, 4),
+                (6, 4) -> (2, 0),
+                (0, 9) -> (2, 9),
+                (3, 4) -> (1, 4),
+                (0, 0) -> (8, 8),
+                (5, 5) -> (8, 2);
+                (0, 0)..(10, 10)
+            ]
+        })
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(LINES_STR), Ok(solution()));
+        assert_eq!(Solution::try_from(LINES_STR).as_ref(), Ok(solution()));
     }
 
     #[test]
     fn test_compute_horizontal_and_vertical_overlaps() {
-        assert_eq!(SOLUTION.compute_horizontal_and_vertical_overlaps(), 5_usize);
+        assert_eq!(
+            solution().compute_horizontal_and_vertical_overlaps(),
+            5_usize
+        );
     }
 
     #[test]
@@ -303,12 +306,15 @@ mod tests {
             "222111....\n",
         );
 
-        assert_eq!(SOLUTION.try_horizontal_and_vertical_grid(), Ok(GRID.into()));
+        assert_eq!(
+            solution().try_horizontal_and_vertical_grid(),
+            Ok(GRID.into())
+        );
     }
 
     #[test]
     fn test_compute_all_overlaps() {
-        assert_eq!(SOLUTION.compute_all_overlaps(), 12_usize);
+        assert_eq!(solution().compute_all_overlaps(), 12_usize);
     }
 
     #[test]
@@ -326,6 +332,6 @@ mod tests {
             "222111....\n",
         );
 
-        assert_eq!(SOLUTION.try_all_grid(), Ok(GRID.into()));
+        assert_eq!(solution().try_all_grid(), Ok(GRID.into()));
     }
 }

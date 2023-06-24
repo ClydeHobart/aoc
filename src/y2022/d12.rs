@@ -386,7 +386,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const HEIGHT_GRID_STR: &str = concat!(
         "Sabqponm\n",
@@ -399,12 +399,86 @@ mod tests {
     const START: IVec2 = IVec2::ZERO;
     const END: IVec2 = IVec2::new(5_i32, 2_i32);
 
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            let mut heights: Grid2D<HeightCell> = Grid2D::default(DIMENSIONS);
+            let mut is_visitable: Grid2D<IsVisitable> = Grid2D::default(DIMENSIONS);
+
+            for ((height_cell_char, is_visitable_i32), (height_cell, is_visitable)) in vec![
+                // Row 0
+                ('a', 0x66),
+                ('a', 0xEE),
+                ('b', 0xEC),
+                ('q', 0x6E),
+                ('p', 0xEA),
+                ('o', 0xEA),
+                ('n', 0xEA),
+                ('m', 0xCC),
+                // Row 1
+                ('a', 0x77),
+                ('b', 0xFF),
+                ('c', 0xFD),
+                ('r', 0x7D),
+                ('y', 0x6F),
+                ('x', 0xEB),
+                ('x', 0xCF),
+                ('l', 0xD5),
+                // Row 2
+                ('a', 0x75),
+                ('c', 0x7F),
+                ('c', 0xFD),
+                ('s', 0x7D),
+                ('z', 0x3F),
+                ('z', 0x8F),
+                ('x', 0xD7),
+                ('k', 0xD5),
+                // Row 3
+                ('a', 0x75),
+                ('c', 0x7F),
+                ('c', 0xFD),
+                ('t', 0x3F),
+                ('u', 0xBE),
+                ('v', 0xBE),
+                ('w', 0x9F),
+                ('j', 0xD5),
+                // Row 4
+                ('a', 0x33),
+                ('b', 0xB9),
+                ('d', 0x3B),
+                ('e', 0xBA),
+                ('f', 0xBA),
+                ('g', 0xBA),
+                ('h', 0xBA),
+                ('i', 0x99),
+            ]
+            .iter()
+            .zip(
+                heights
+                    .cells_mut()
+                    .iter_mut()
+                    .zip(is_visitable.cells_mut().iter_mut()),
+            ) {
+                *height_cell = HeightCell(*height_cell_char as u8);
+                *is_visitable = IsVisitable(*is_visitable_i32 as u8);
+            }
+
+            Solution(HeightGrid {
+                heights,
+                is_visitable,
+                start: START,
+                end: END,
+            })
+        })
+    }
+
     #[test]
-    fn test_height_grid_try_from_str() {
-        match HeightGrid::try_from(HEIGHT_GRID_STR) {
-            Ok(height_grid) => compare_height_grids(&height_grid, &example_height_grid()),
-            Err(error) => panic!("{error:#?}"),
-        }
+    fn test_solution_try_from_str() {
+        compare_height_grids(
+            &Solution::try_from(HEIGHT_GRID_STR).unwrap().0,
+            &solution().0,
+        )
     }
 
     fn compare_height_grids(a: &HeightGrid, b: &HeightGrid) {
@@ -439,92 +513,12 @@ mod tests {
     }
 
     #[test]
-    fn test_a_star_run() {
-        let height_grid: HeightGrid = example_height_grid();
-        let path: Vec<IVec2> = HeightGridAStarAscent::new(&height_grid).run().unwrap();
-
-        // 31 total steps, but 32 elements including the start
-        assert_eq!(path.len(), 32_usize);
+    fn test_a_star_ascent() {
+        assert_eq!(solution().a_star_ascent().len(), 32_usize);
     }
 
     #[test]
-    fn test_breadth_first_search_run() {
-        let height_grid: HeightGrid = example_height_grid();
-        let path: Vec<IVec2> = HeightGridBreadthFirstSearchDescent::new(&height_grid)
-            .run()
-            .unwrap();
-
-        // 29 total steps, but 30 elements including the start
-        assert_eq!(path.len(), 30_usize);
-    }
-
-    fn example_height_grid() -> HeightGrid {
-        let mut heights: Grid2D<HeightCell> = Grid2D::default(DIMENSIONS);
-        let mut is_visitable: Grid2D<IsVisitable> = Grid2D::default(DIMENSIONS);
-
-        for ((height_cell_char, is_visitable_i32), (height_cell, is_visitable)) in vec![
-            // Row 0
-            ('a', 0x66),
-            ('a', 0xEE),
-            ('b', 0xEC),
-            ('q', 0x6E),
-            ('p', 0xEA),
-            ('o', 0xEA),
-            ('n', 0xEA),
-            ('m', 0xCC),
-            // Row 1
-            ('a', 0x77),
-            ('b', 0xFF),
-            ('c', 0xFD),
-            ('r', 0x7D),
-            ('y', 0x6F),
-            ('x', 0xEB),
-            ('x', 0xCF),
-            ('l', 0xD5),
-            // Row 2
-            ('a', 0x75),
-            ('c', 0x7F),
-            ('c', 0xFD),
-            ('s', 0x7D),
-            ('z', 0x3F),
-            ('z', 0x8F),
-            ('x', 0xD7),
-            ('k', 0xD5),
-            // Row 3
-            ('a', 0x75),
-            ('c', 0x7F),
-            ('c', 0xFD),
-            ('t', 0x3F),
-            ('u', 0xBE),
-            ('v', 0xBE),
-            ('w', 0x9F),
-            ('j', 0xD5),
-            // Row 4
-            ('a', 0x33),
-            ('b', 0xB9),
-            ('d', 0x3B),
-            ('e', 0xBA),
-            ('f', 0xBA),
-            ('g', 0xBA),
-            ('h', 0xBA),
-            ('i', 0x99),
-        ]
-        .iter()
-        .zip(
-            heights
-                .cells_mut()
-                .iter_mut()
-                .zip(is_visitable.cells_mut().iter_mut()),
-        ) {
-            *height_cell = HeightCell(*height_cell_char as u8);
-            *is_visitable = IsVisitable(*is_visitable_i32 as u8);
-        }
-
-        HeightGrid {
-            heights,
-            is_visitable,
-            start: START,
-            end: END,
-        }
+    fn test_bfs_descent() {
+        assert_eq!(solution().bfs_descent().len(), 30_usize);
     }
 }

@@ -176,17 +176,26 @@ impl<'a> TryFrom<&'a str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
-    const DIAGNOSTIC_REPORT_STR: &str =
-        "00100\n11110\n10110\n10111\n10101\n01111\n00111\n11100\n10000\n11001\n00010\n01010";
+    const DIAGNOSTIC_REPORT_STR: &str = "\
+        00100\n\
+        11110\n\
+        10110\n\
+        10111\n\
+        10101\n\
+        01111\n\
+        00111\n\
+        11100\n\
+        10000\n\
+        11001\n\
+        00010\n\
+        01010";
 
-    lazy_static! {
-        static ref SOLUTION: Solution = solutions();
-    }
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
 
-    fn solutions() -> Solution {
-        Solution {
+        ONCE_LOCK.get_or_init(|| Solution {
             nums: vec![
                 0b00100_u16,
                 0b11110_u16,
@@ -202,36 +211,42 @@ mod tests {
                 0b01010_u16,
             ],
             bits: 5_u32,
-        }
+        })
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(DIAGNOSTIC_REPORT_STR), Ok(solutions()));
+        assert_eq!(
+            Solution::try_from(DIAGNOSTIC_REPORT_STR).as_ref(),
+            Ok(solution())
+        );
     }
 
     #[test]
     fn test_compute_gamma_and_epsilon_rates() {
-        assert_eq!(SOLUTION.compute_gamma_and_epsilon_rates(), (22_u16, 9_u16));
+        assert_eq!(
+            solution().compute_gamma_and_epsilon_rates(),
+            (22_u16, 9_u16)
+        );
     }
 
     #[test]
     fn test_compute_power_consumption() {
-        assert_eq!(SOLUTION.compute_power_consumption(), 198_u32);
+        assert_eq!(solution().compute_power_consumption(), 198_u32);
     }
 
     #[test]
     fn test_compute_oxygen_generator_rating() {
-        assert_eq!(SOLUTION.compute_oxygen_generator_rating(), 23_u16);
+        assert_eq!(solution().compute_oxygen_generator_rating(), 23_u16);
     }
 
     #[test]
     fn test_compute_co2_scrubber_rating() {
-        assert_eq!(SOLUTION.compute_co2_scrubber_rating(), 10_u16);
+        assert_eq!(solution().compute_co2_scrubber_rating(), 10_u16);
     }
 
     #[test]
     fn test_compute_life_support_rating() {
-        assert_eq!(SOLUTION.compute_life_support_rating(), 230_u32);
+        assert_eq!(solution().compute_life_support_rating(), 230_u32);
     }
 }

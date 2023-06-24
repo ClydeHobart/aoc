@@ -111,49 +111,55 @@ impl<'a> TryFrom<&'a str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
-    const COMMANDS_STR: &str = "forward 5\ndown 5\nforward 8\nup 3\ndown 8\nforward 2\n";
+    const COMMANDS_STR: &str = "\
+        forward 5\n\
+        down 5\n\
+        forward 8\n\
+        up 3\n\
+        down 8\n\
+        forward 2\n";
 
-    lazy_static! {
-        static ref SOLUTION: Solution = solution();
-    }
-
-    fn solution() -> Solution {
+    fn solution() -> &'static Solution {
         use Command::*;
 
-        Solution(vec![
-            Forward(5),
-            Down(5),
-            Forward(8),
-            Up(3),
-            Down(8),
-            Forward(2),
-        ])
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            Solution(vec![
+                Forward(5),
+                Down(5),
+                Forward(8),
+                Up(3),
+                Down(8),
+                Forward(2),
+            ])
+        })
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(COMMANDS_STR), Ok(solution()));
+        assert_eq!(Solution::try_from(COMMANDS_STR).as_ref(), Ok(solution()));
     }
 
     #[test]
     fn test_compute_h_pos_and_depth() {
-        assert_eq!(SOLUTION.compute_h_pos_and_depth(), (15, 10));
+        assert_eq!(solution().compute_h_pos_and_depth(), (15, 10));
     }
 
     #[test]
     fn test_compute_product() {
-        assert_eq!(SOLUTION.compute_product(), 150);
+        assert_eq!(solution().compute_product(), 150);
     }
 
     #[test]
     fn test_compute_h_pos_and_depth_with_aim() {
-        assert_eq!(SOLUTION.compute_h_pos_and_depth_with_aim(), (15, 60));
+        assert_eq!(solution().compute_h_pos_and_depth_with_aim(), (15, 60));
     }
 
     #[test]
     fn test_compute_product_with_aim() {
-        assert_eq!(SOLUTION.compute_product_with_aim(), 900);
+        assert_eq!(solution().compute_product_with_aim(), 900);
     }
 }

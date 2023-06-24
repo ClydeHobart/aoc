@@ -24,7 +24,7 @@ mod graph;
 mod grid;
 pub mod minimal_value_with_all_digit_pairs;
 
-#[allow(unreachable_code, unused_imports, unused_variables)]
+#[allow(dead_code, unused_imports, unused_variables)]
 mod template;
 
 #[derive(Debug, Parser)]
@@ -325,8 +325,10 @@ macro_rules! solutions {
             }
         )*
 
-        lazy_static::lazy_static! {
-            pub static ref SOLUTIONS: Solutions = Solutions::try_from_year_params(vec![ $(
+        pub fn solutions() -> &'static Solutions {
+            static ONCE_LOCK: std::sync::OnceLock<Solutions> = std::sync::OnceLock::new();
+
+            ONCE_LOCK.get_or_init(|| Solutions::try_from_year_params(vec![ $(
                 YearParams {
                     string: stringify!($year),
                     option: None,
@@ -342,9 +344,23 @@ macro_rules! solutions {
                         },
                     )* ]
                 },
-            )* ]).unwrap_or_else(Solutions::default);
+            )* ]).unwrap_or_else(Solutions::default))
         }
     };
+}
+
+#[macro_export]
+macro_rules! pretty_assert_eq {
+    ($left:expr, $right:expr) => {{
+        let left = $left;
+        let right = $right;
+
+        if left != right {
+            panic!(
+                "pretty assertion failed: `(left == right)`\nleft: {left:#?}\nright: {right:#?}"
+            );
+        }
+    }};
 }
 
 /// Opens a memory-mapped UTF-8 file at a specified path, and passes in a `&str` over the file to a

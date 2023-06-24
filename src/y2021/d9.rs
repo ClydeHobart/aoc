@@ -258,7 +258,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const SOLUTION_STR: &str = concat!(
         "2199943210\n",
@@ -269,58 +269,61 @@ mod tests {
     );
     const DIMENSIONS: IVec2 = IVec2::new(10_i32, 5_i32);
 
-    lazy_static! {
-        static ref HEIGHT_ONLY_GRID: HeightOnlyGrid = height_only_grid();
-        static ref SOLUTION: Solution = solution();
-    }
-
     macro_rules! heights {
         [ $( [ $( $height:expr ),* ], )*] => { vec![ $( $( Height($height), )* )* ] };
     }
 
-    fn height_only_grid() -> HeightOnlyGrid {
-        HeightOnlyGrid(
-            Grid2D::try_from_cells_and_dimensions(
-                heights![
-                    [2, 1, 9, 9, 9, 4, 3, 2, 1, 0],
-                    [3, 9, 8, 7, 8, 9, 4, 9, 2, 1],
-                    [9, 8, 5, 6, 7, 8, 9, 8, 9, 2],
-                    [8, 7, 6, 7, 8, 9, 6, 7, 8, 9],
-                    [9, 8, 9, 9, 9, 6, 5, 6, 7, 8],
-                ],
-                DIMENSIONS,
+    fn height_only_grid() -> &'static HeightOnlyGrid {
+        static ONCE_LOCK: OnceLock<HeightOnlyGrid> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            HeightOnlyGrid(
+                Grid2D::try_from_cells_and_dimensions(
+                    heights![
+                        [2, 1, 9, 9, 9, 4, 3, 2, 1, 0],
+                        [3, 9, 8, 7, 8, 9, 4, 9, 2, 1],
+                        [9, 8, 5, 6, 7, 8, 9, 8, 9, 2],
+                        [8, 7, 6, 7, 8, 9, 6, 7, 8, 9],
+                        [9, 8, 9, 9, 9, 6, 5, 6, 7, 8],
+                    ],
+                    DIMENSIONS,
+                )
+                .unwrap(),
             )
-            .unwrap_or_else(|| Grid2D::empty(DIMENSIONS)),
-        )
+        })
     }
 
-    fn solution() -> Solution {
-        Solution(
-            Grid2D::try_from_cells_and_dimensions(
-                heights![
-                    [0xD2, 0xF1, 0x19, 0x19, 0x19, 0xD4, 0xD3, 0xD2, 0xD1, 0xF0],
-                    [0xE3, 0x09, 0x98, 0xB7, 0x38, 0x09, 0xE4, 0x09, 0xC2, 0xE1],
-                    [0x89, 0x98, 0xF5, 0x76, 0x77, 0x78, 0x09, 0xB8, 0x09, 0xE2],
-                    [0xD8, 0xD7, 0xE6, 0x67, 0x68, 0x09, 0xB6, 0x37, 0x38, 0x29],
-                    [0xC9, 0xE8, 0x49, 0x49, 0x49, 0xD6, 0xF5, 0x76, 0x77, 0x78],
-                ],
-                DIMENSIONS,
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            Solution(
+                Grid2D::try_from_cells_and_dimensions(
+                    heights![
+                        [0xD2, 0xF1, 0x19, 0x19, 0x19, 0xD4, 0xD3, 0xD2, 0xD1, 0xF0],
+                        [0xE3, 0x09, 0x98, 0xB7, 0x38, 0x09, 0xE4, 0x09, 0xC2, 0xE1],
+                        [0x89, 0x98, 0xF5, 0x76, 0x77, 0x78, 0x09, 0xB8, 0x09, 0xE2],
+                        [0xD8, 0xD7, 0xE6, 0x67, 0x68, 0x09, 0xB6, 0x37, 0x38, 0x29],
+                        [0xC9, 0xE8, 0x49, 0x49, 0x49, 0xD6, 0xF5, 0x76, 0x77, 0x78],
+                    ],
+                    DIMENSIONS,
+                )
+                .unwrap_or_else(|| Grid2D::empty(DIMENSIONS)),
             )
-            .unwrap_or_else(|| Grid2D::empty(DIMENSIONS)),
-        )
+        })
     }
 
     #[test]
     fn test_height_only_grid_try_from_str() {
         assert_eq!(
-            HeightOnlyGrid::try_from(SOLUTION_STR),
+            HeightOnlyGrid::try_from(SOLUTION_STR).as_ref(),
             Ok(height_only_grid())
         );
     }
 
     #[test]
     fn test_solution_from_height_only_grid() {
-        assert_eq!(Solution::from(&*HEIGHT_ONLY_GRID), solution())
+        assert_eq!(&Solution::from(height_only_grid()), solution())
     }
 
     #[test]
@@ -332,7 +335,7 @@ mod tests {
         }
 
         assert_eq!(
-            SOLUTION.low_points().collect::<Vec<(IVec2, Height)>>(),
+            solution().low_points().collect::<Vec<(IVec2, Height)>>(),
             low_points![((1, 0), 1), ((9, 0), 0), ((2, 2), 5), ((6, 4), 5)]
         )
     }
@@ -346,7 +349,7 @@ mod tests {
         }
 
         assert_eq!(
-            SOLUTION
+            solution()
                 .low_point_risk_levels()
                 .collect::<Vec<(IVec2, u8)>>(),
             low_point_risk_levels![((1, 0), 2), ((9, 0), 1), ((2, 2), 6), ((6, 4), 6)]
@@ -355,7 +358,7 @@ mod tests {
 
     #[test]
     fn test_low_point_risk_levels_sum() {
-        assert_eq!(SOLUTION.low_point_risk_levels_sum(), 15_u32);
+        assert_eq!(solution().low_point_risk_levels_sum(), 15_u32);
     }
 
     #[test]
@@ -371,35 +374,47 @@ mod tests {
         }
 
         assert_eq!(
-            SOLUTION.basins().collect::<Vec<Basin>>(),
+            solution().basins().collect::<Vec<Basin>>(),
             basins![
                 {
                     (1, 0),
                     3,
-                    [(0, 0), (1, 0), (0, 1),],
+                    [
+                        (0, 0), (0, 1),
+                        (1, 0),
+                    ],
                 },
                 {
                     (9, 0),
                     9,
-                    [(5, 0), (6, 0), (7, 0), (8, 0), (9, 0), (6, 1), (8, 1), (9, 1), (9, 2),],
+                    [
+                        (5, 0),
+                        (6, 0), (6, 1),
+                        (7, 0),
+                        (8, 0), (8, 1),
+                        (9, 0), (9, 1), (9, 2),],
                 },
                 {
                     (2, 2),
                     14,
                     [
-                        (2, 1), (3, 1), (4, 1),
-                        (2, 1), (2, 2), (2, 3), (2, 4), (2, 5),
-                        (0, 3), (1, 3), (2, 3), (3, 3), (4, 3),
-                        (1, 4),
+                        (0, 3),
+                        (1, 2), (1, 3), (1, 4),
+                        (2, 1), (2, 2), (2, 3),
+                        (3, 1), (3, 2), (3, 3),
+                        (4, 1), (4, 2), (4, 3),
+                        (5, 2),
                     ],
                 },
                 {
                     (6, 4),
                     9,
                     [
-                        (7, 2),
-                        (6, 3), (7, 3), (8, 3),
-                        (5, 4), (6, 4), (7, 4), (8, 4), (9, 4),
+                        (5, 4),
+                        (6, 3), (6, 4),
+                        (7, 2), (7, 3), (7, 4),
+                        (8, 3), (8, 4),
+                        (9, 4),
                     ],
                 },
             ]
@@ -408,6 +423,6 @@ mod tests {
 
     #[test]
     fn test_largest_3_basin_sizes_product() {
-        assert_eq!(SOLUTION.largest_3_basin_sizes_product(), 1134_usize);
+        assert_eq!(solution().largest_3_basin_sizes_product(), 1134_usize);
     }
 }

@@ -122,32 +122,32 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const LANTERNFISH_STR: &str = "3,4,3,1,2";
 
-    lazy_static! {
-        static ref SOLUTION: Solution = solution();
-    }
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
 
-    fn solution() -> Solution {
-        Solution(State {
-            counts: [
-                0_usize, 1_usize, 1_usize, 2_usize, 1_usize, 0_usize, 0_usize, 0_usize, 0_usize,
-            ],
-            offset: 0_usize,
-            total: 5_usize,
+        ONCE_LOCK.get_or_init(|| {
+            Solution(State {
+                counts: [
+                    0_usize, 1_usize, 1_usize, 2_usize, 1_usize, 0_usize, 0_usize, 0_usize, 0_usize,
+                ],
+                offset: 0_usize,
+                total: 5_usize,
+            })
         })
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(LANTERNFISH_STR), Ok(solution()));
+        assert_eq!(Solution::try_from(LANTERNFISH_STR).as_ref(), Ok(solution()));
     }
 
     #[test]
     fn test_build_timers() {
-        assert_eq!(SOLUTION.0.build_timers(), vec![1, 2, 3, 3, 4]);
+        assert_eq!(solution().0.build_timers(), vec![1, 2, 3, 3, 4]);
     }
 
     #[test]
@@ -178,7 +178,7 @@ mod tests {
                 6, 0, 6, 4, 5, 6, 0, 1, 1, 2, 6, 0, 1, 1, 1, 2, 2, 3, 3, 4, 6, 7, 8, 8, 8, 8,
             ],
         ];
-        let mut state = SOLUTION.0.clone();
+        let mut state = solution().0.clone();
 
         for timers in all_timers.iter_mut() {
             timers.sort();
@@ -190,8 +190,11 @@ mod tests {
 
     #[test]
     fn test_count_lanternfish() {
-        assert_eq!(SOLUTION.count_lanternfish(18_usize), 26_usize);
-        assert_eq!(SOLUTION.count_lanternfish(80_usize), 5934_usize);
-        assert_eq!(SOLUTION.count_lanternfish(256_usize), 26_984_457_539_usize);
+        assert_eq!(solution().count_lanternfish(18_usize), 26_usize);
+        assert_eq!(solution().count_lanternfish(80_usize), 5934_usize);
+        assert_eq!(
+            solution().count_lanternfish(256_usize),
+            26_984_457_539_usize
+        );
     }
 }

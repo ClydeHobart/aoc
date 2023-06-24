@@ -207,7 +207,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const SOLUTION_STR: &str = concat!(
         "[({(<(())[]>[[{[]{<()<>>\n",
@@ -222,11 +222,7 @@ mod tests {
         "<{([{{}}[<[[[<>{}]]]>[]]\n",
     );
 
-    lazy_static! {
-        static ref SOLUTION: Solution = solution();
-    }
-
-    fn solution() -> Solution {
+    fn solution() -> &'static Solution {
         use Status::{Corrupted as C, Incomplete as I};
 
         macro_rules! lines {
@@ -235,7 +231,9 @@ mod tests {
             };
         }
 
-        Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| Solution {
             lines: lines![
                 // [({([[{{
                 { 0..24, I(8), },
@@ -271,21 +269,21 @@ mod tests {
                 "])}>",
             )
             .into(),
-        }
+        })
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(SOLUTION_STR), Ok(solution()))
+        assert_eq!(Solution::try_from(SOLUTION_STR).as_ref(), Ok(solution()))
     }
 
     #[test]
     fn test_total_syntax_error_score() {
-        assert_eq!(SOLUTION.total_syntax_error_score(), 26_397_u32);
+        assert_eq!(solution().total_syntax_error_score(), 26_397_u32);
     }
 
     #[test]
     fn test_middle_completion_score() {
-        assert_eq!(SOLUTION.middle_completion_score(), 288_957_u64);
+        assert_eq!(solution().middle_completion_score(), 288_957_u64);
     }
 }

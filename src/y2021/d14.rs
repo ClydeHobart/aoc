@@ -587,7 +587,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static, std::collections::HashMap};
+    use {super::*, std::collections::HashMap, std::sync::OnceLock};
 
     const SOLUTION_1_STR: &str = concat!(
         "NNCB\n",
@@ -625,12 +625,6 @@ mod tests {
         AA -> A\n\
         AB -> A\n\
         BA -> B\n";
-
-    lazy_static! {
-        static ref SOLUTION_1: Solution = solution_1();
-        static ref SOLUTION_2: Solution = solution_2();
-        static ref SOLUTION_3: Solution = solution_3();
-    }
 
     macro_rules! polymer { [ $( $element_index:expr ),* $(,)? ] => {
         Polymer(vec![ $( ElementIndex($element_index), )* ])
@@ -682,54 +676,75 @@ mod tests {
         };
     }
 
-    fn solution_1() -> Solution {
-        solution! {
-            ['N', 'C', 'B', 'H'],
-            [0, 0, 1, 2],
-            Rules::Complete(vec![
-                1, 2, 2, 1,
-                1, 0, 3, 2,
-                2, 2, 0, 3,
-                1, 2, 1, 0,
-            ].into_iter().map(ElementIndex).collect())
-        }
-    }
+    fn solution_1() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
 
-    fn solution_2() -> Solution {
-        solution! {
-            ['A', 'B'],
-            [0, 0, 1, 1, 0],
-            Rules::Complete(vec![1, 0, 0, 0].into_iter().map(ElementIndex).collect()),
-            {
-                [
-                    86, 85, 85, 0, // AA
-                    85, 86, 85, 0, // AB
-                    85, 85, 86, 0, // BA
-                    86, 85, 85, 0, // BB
-                ],//AA  AB  BA  BB
-                8
+        ONCE_LOCK.get_or_init(|| {
+            solution! {
+                ['N', 'C', 'B', 'H'],
+                [0, 0, 1, 2],
+                Rules::Complete(vec![
+                    1, 2, 2, 1,
+                    1, 0, 3, 2,
+                    2, 2, 0, 3,
+                    1, 2, 1, 0,
+                ].into_iter().map(ElementIndex).collect())
             }
-        }
+        })
     }
 
-    fn solution_3() -> Solution {
-        solution! {
-            ['A', 'B'],
-            [0, 0, 1, 1, 0],
-            Rules::Incomplete(
-                vec![Some(0), Some(0), Some(1), None]
-                    .into_iter()
-                    .map(|option| option.map(ElementIndex))
-                    .collect()
-            )
-        }
+    fn solution_2() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            solution! {
+                ['A', 'B'],
+                [0, 0, 1, 1, 0],
+                Rules::Complete(vec![1, 0, 0, 0].into_iter().map(ElementIndex).collect()),
+                {
+                    [
+                        86, 85, 85, 0, // AA
+                        85, 86, 85, 0, // AB
+                        85, 85, 86, 0, // BA
+                        86, 85, 85, 0, // BB
+                    ],//AA  AB  BA  BB
+                    8
+                }
+            }
+        })
+    }
+
+    fn solution_3() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            solution! {
+                ['A', 'B'],
+                [0, 0, 1, 1, 0],
+                Rules::Incomplete(
+                    vec![Some(0), Some(0), Some(1), None]
+                        .into_iter()
+                        .map(|option| option.map(ElementIndex))
+                        .collect()
+                )
+            }
+        })
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(SOLUTION_1_STR), Ok(solution_1()));
-        assert_eq!(Solution::try_from(SOLUTION_2_STR), Ok(solution_2()));
-        assert_eq!(Solution::try_from(SOLUTION_3_STR), Ok(solution_3()));
+        assert_eq!(
+            Solution::try_from(SOLUTION_1_STR).as_ref(),
+            Ok(solution_1())
+        );
+        assert_eq!(
+            Solution::try_from(SOLUTION_2_STR).as_ref(),
+            Ok(solution_2())
+        );
+        assert_eq!(
+            Solution::try_from(SOLUTION_3_STR).as_ref(),
+            Ok(solution_3())
+        );
     }
 
     #[test]
@@ -745,7 +760,7 @@ mod tests {
         .enumerate()
         {
             assert_eq!(
-                SOLUTION_1.polymer_as_string(SOLUTION_1.run_pair_insertion_process(index)),
+                solution_1().polymer_as_string(solution_1().run_pair_insertion_process(index)),
                 polymer
             );
         }
@@ -772,7 +787,7 @@ mod tests {
         .map(|(steps, element_frequencies)| {
             (
                 steps,
-                SOLUTION_1.element_frequencies_after_steps(steps),
+                solution_1().element_frequencies_after_steps(steps),
                 element_frequencies
                     .iter()
                     .copied()
@@ -802,12 +817,12 @@ mod tests {
     #[test]
     fn test_rule_frequencies_polymer_template() {
         assert_eq!(
-            SOLUTION_1.rule_frequencies_polymer_template(),
+            solution_1().rule_frequencies_polymer_template(),
             polymer![0, 0, 1, 0, 2, 0, 3, 1, 1, 2, 1, 3, 2, 2, 3, 3, 0]
         );
 
         let solution_2_rule_frequencies_polymer_template: Polymer =
-            SOLUTION_2.rule_frequencies_polymer_template();
+            solution_2().rule_frequencies_polymer_template();
 
         assert_eq!(
             solution_2_rule_frequencies_polymer_template,
@@ -815,11 +830,11 @@ mod tests {
         );
         assert_eq!(
             solution_2_rule_frequencies_polymer_template,
-            SOLUTION_2.polymer_template
+            solution_2().polymer_template
         );
 
         let solution_3_rule_frequencies_polymer_template: Polymer =
-            SOLUTION_3.rule_frequencies_polymer_template();
+            solution_3().rule_frequencies_polymer_template();
 
         assert_eq!(
             solution_3_rule_frequencies_polymer_template,
@@ -827,14 +842,14 @@ mod tests {
         );
         assert_eq!(
             solution_3_rule_frequencies_polymer_template,
-            SOLUTION_3.polymer_template
+            solution_3().polymer_template
         );
     }
 
     #[test]
     fn test_rule_frequencies_steps() {
-        assert_eq!(SOLUTION_1.rule_frequencies_steps(), u8::BITS as u8);
-        assert_eq!(SOLUTION_2.rule_frequencies_steps(), u8::BITS as u8);
-        assert_eq!(SOLUTION_3.rule_frequencies_steps(), u8::BITS as u8 - 1_u8);
+        assert_eq!(solution_1().rule_frequencies_steps(), u8::BITS as u8);
+        assert_eq!(solution_2().rule_frequencies_steps(), u8::BITS as u8);
+        assert_eq!(solution_3().rule_frequencies_steps(), u8::BITS as u8 - 1_u8);
     }
 }

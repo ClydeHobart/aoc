@@ -74,30 +74,31 @@ impl<'a> TryFrom<&'a str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const SWEEP_REPORT_STR: &str = "199\n200\n208\n210\n200\n207\n240\n269\n260\n263\n";
 
-    lazy_static! {
-        static ref SOLUTION: Solution = solutions();
-    }
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
 
-    fn solutions() -> Solution {
-        Solution(vec![199, 200, 208, 210, 200, 207, 240, 269, 260, 263])
+        ONCE_LOCK.get_or_init(|| Solution(vec![199, 200, 208, 210, 200, 207, 240, 269, 260, 263]))
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(SWEEP_REPORT_STR), Ok(solutions()))
+        assert_eq!(
+            Solution::try_from(SWEEP_REPORT_STR).as_ref(),
+            Ok(solution())
+        )
     }
 
     #[test]
     fn test_count_increases() {
-        assert_eq!(SOLUTION.count_increases(), 7);
+        assert_eq!(solution().count_increases(), 7);
     }
 
     #[test]
     fn test_count_increases_of_rolling_window_3() {
-        assert_eq!(SOLUTION.count_increases_of_rolling_window_3(), 5);
+        assert_eq!(solution().count_increases_of_rolling_window_3(), 5);
     }
 }

@@ -804,7 +804,7 @@ impl TryFrom<&str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const FILE_SYSTEM_STR: &str = "$ cd /\n\
         $ ls\n\
@@ -830,8 +830,10 @@ mod tests {
         5626152 d.ext\n\
         7214296 k";
 
-    lazy_static! {
-        static ref SOLUTION: Solution = Solution(FILE_SYSTEM_STR.into());
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| Solution(FILE_SYSTEM_STR.into()))
     }
 
     #[test]
@@ -844,13 +846,13 @@ mod tests {
 
     #[test]
     fn test_sum_directory_sizes_at_most_100k() {
-        assert_eq!(SOLUTION.sum_directory_sizes_at_most_100k(), 95_437_usize);
+        assert_eq!(solution().sum_directory_sizes_at_most_100k(), 95_437_usize);
     }
 
     #[test]
     fn test_smallest_directory_to_free_30m_of_70m() {
         assert_eq!(
-            SOLUTION.smallest_directory_size_to_free_30m_of_70m(),
+            solution().smallest_directory_size_to_free_30m_of_70m(),
             24_933_642_usize
         );
     }

@@ -421,7 +421,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const N: usize = 2_usize;
     const MOTION_SEQUENCE_STR: &str = "\
@@ -434,50 +434,149 @@ mod tests {
         L 5\n\
         R 2";
 
+    const fn initial_and_dimensions() -> (IVec2, IVec2) {
+        (IVec2::new(0_i32, 4_i32), IVec2::new(6_i32, 5_i32))
+    }
+
+    fn rope_states() -> &'static Vec<RopeState<N>> {
+        static ONCE_LOCK: OnceLock<Vec<RopeState<N>>> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            macro_rules! states {
+            [$((h: ($hx:expr, $hy:expr), t: ($tx:expr, $ty:expr)),)*] => {
+                vec![
+                    $( RopeState::from_head_and_tail(IVec2::new($hx, $hy), IVec2::new($tx, $ty)), )*
+                ]
+            };
+        }
+
+            states![
+                (h: (0, 4), t: (0, 4)),
+                (h: (1, 4), t: (0, 4)),
+                (h: (2, 4), t: (1, 4)),
+                (h: (3, 4), t: (2, 4)),
+                (h: (4, 4), t: (3, 4)),
+                (h: (4, 3), t: (3, 4)),
+                (h: (4, 2), t: (4, 3)),
+                (h: (4, 1), t: (4, 2)),
+                (h: (4, 0), t: (4, 1)),
+                (h: (3, 0), t: (4, 1)),
+                (h: (2, 0), t: (3, 0)),
+                (h: (1, 0), t: (2, 0)),
+                (h: (1, 1), t: (2, 0)),
+                (h: (2, 1), t: (2, 0)),
+                (h: (3, 1), t: (2, 0)),
+                (h: (4, 1), t: (3, 1)),
+                (h: (5, 1), t: (4, 1)),
+                (h: (5, 2), t: (4, 1)),
+                (h: (4, 2), t: (4, 1)),
+                (h: (3, 2), t: (4, 1)),
+                (h: (2, 2), t: (3, 2)),
+                (h: (1, 2), t: (2, 2)),
+                (h: (0, 2), t: (1, 2)),
+                (h: (1, 2), t: (1, 2)),
+                (h: (2, 2), t: (1, 2)),
+            ]
+        })
+    }
+
+    fn has_visited_grid() -> &'static Grid2D<HasVisited<N>> {
+        static ONCE_LOCK: OnceLock<Grid2D<HasVisited<N>>> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            // `rust_fmt` insists on restructuring this array, so separate constants it is
+            const ROW_0: &str = " /XX/ ";
+            const ROW_1: &str = " //XX/";
+            const ROW_2: &str = "/XXXX/";
+            const ROW_3: &str = "    X ";
+            const ROW_4: &str = "XXXX/ ";
+            const HAS_VISITED_GRID_STRS: [&str; 5_usize] = [ROW_0, ROW_1, ROW_2, ROW_3, ROW_4];
+
+            Grid2D::try_from_cells_and_width(
+                HAS_VISITED_GRID_STRS
+                    .iter()
+                    .map(|s: &&str| s.chars())
+                    .flatten()
+                    .map(HasVisited::<N>::try_from)
+                    .map(Result::unwrap)
+                    .collect(),
+                6_usize,
+            )
+            .unwrap()
+        })
+    }
+
+    fn motion_sequence() -> &'static MotionSequence {
+        static ONCE_LOCK: OnceLock<MotionSequence> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            use Direction::*;
+
+            macro_rules! motion_sequence {
+                [$(($dir:ident, $dist:expr),)*] => {
+                    MotionSequence(vec![
+                        $( Motion { dir: $dir, dist: $dist }, )*
+                    ])
+                };
+            }
+
+            motion_sequence![
+                (East, 4),
+                (North, 4),
+                (West, 3),
+                (South, 1),
+                (East, 4),
+                (South, 1),
+                (West, 5),
+                (East, 2),
+            ]
+        })
+    }
+
     #[test]
     fn test_motion_sequence_try_from_str() {
         assert_eq!(
-            MotionSequence::try_from(MOTION_SEQUENCE_STR),
-            Ok(example_motion_sequence())
+            MotionSequence::try_from(MOTION_SEQUENCE_STR).as_ref(),
+            Ok(motion_sequence())
         );
     }
 
     #[test]
     fn test_compute_initial_and_dimensions() {
         assert_eq!(
-            example_motion_sequence().compute_initial_and_dimensions(),
-            example_initial_and_dimensions()
+            motion_sequence().compute_initial_and_dimensions(),
+            initial_and_dimensions()
         );
     }
 
     #[test]
     fn test_state_iter() {
         assert_eq!(
-            example_motion_sequence()
-                .iter(example_initial_and_dimensions().0)
+            &motion_sequence()
+                .iter(initial_and_dimensions().0)
                 .map(
                     |ref_cell_rope_state: RefCell<RopeState<N>>| ref_cell_rope_state
                         .borrow()
                         .clone()
                 )
                 .collect::<Vec<RopeState<N>>>(),
-            example_states()
+            rope_states()
         );
     }
 
     #[test]
     fn test_visit() {
-        let mut has_visited_grid: Grid2D<HasVisited<N>> =
-            Grid2D::default(example_initial_and_dimensions().1);
+        let mut real_has_visited_grid: Grid2D<HasVisited<N>> =
+            Grid2D::default(initial_and_dimensions().1);
 
-        has_visited_grid.visit(example_states().into_iter().map(RefCell::new));
+        real_has_visited_grid.visit(rope_states().iter().cloned().map(RefCell::new));
 
-        assert_eq!(has_visited_grid, example_has_visited_grid());
+        assert_eq!(&real_has_visited_grid, has_visited_grid());
     }
 
     #[test]
     fn test_count_tails() {
-        assert_eq!(example_has_visited_grid().count_tails(), 13_usize);
+        assert_eq!(has_visited_grid().count_tails(), 13_usize);
     }
 
     #[test]
@@ -517,92 +616,5 @@ mod tests {
         has_visited_grid.visit(motion_sequence.iter(initial));
 
         assert_eq!(has_visited_grid.count_tails(), 36_usize);
-    }
-
-    fn example_initial_and_dimensions() -> (IVec2, IVec2) {
-        (IVec2::new(0_i32, 4_i32), IVec2::new(6_i32, 5_i32))
-    }
-
-    fn example_motion_sequence() -> MotionSequence {
-        use Direction::*;
-
-        macro_rules! motion_sequence {
-            [$(($dir:ident, $dist:expr),)*] => {
-                MotionSequence(vec![
-                    $( Motion { dir: $dir, dist: $dist }, )*
-                ])
-            };
-        }
-
-        motion_sequence![
-            (East, 4),
-            (North, 4),
-            (West, 3),
-            (South, 1),
-            (East, 4),
-            (South, 1),
-            (West, 5),
-            (East, 2),
-        ]
-    }
-
-    fn example_states() -> Vec<RopeState<N>> {
-        macro_rules! states {
-            [$((h: ($hx:expr, $hy:expr), t: ($tx:expr, $ty:expr)),)*] => {
-                vec![
-                    $( RopeState::from_head_and_tail(IVec2::new($hx, $hy), IVec2::new($tx, $ty)), )*
-                ]
-            };
-        }
-
-        states![
-            (h: (0, 4), t: (0, 4)),
-            (h: (1, 4), t: (0, 4)),
-            (h: (2, 4), t: (1, 4)),
-            (h: (3, 4), t: (2, 4)),
-            (h: (4, 4), t: (3, 4)),
-            (h: (4, 3), t: (3, 4)),
-            (h: (4, 2), t: (4, 3)),
-            (h: (4, 1), t: (4, 2)),
-            (h: (4, 0), t: (4, 1)),
-            (h: (3, 0), t: (4, 1)),
-            (h: (2, 0), t: (3, 0)),
-            (h: (1, 0), t: (2, 0)),
-            (h: (1, 1), t: (2, 0)),
-            (h: (2, 1), t: (2, 0)),
-            (h: (3, 1), t: (2, 0)),
-            (h: (4, 1), t: (3, 1)),
-            (h: (5, 1), t: (4, 1)),
-            (h: (5, 2), t: (4, 1)),
-            (h: (4, 2), t: (4, 1)),
-            (h: (3, 2), t: (4, 1)),
-            (h: (2, 2), t: (3, 2)),
-            (h: (1, 2), t: (2, 2)),
-            (h: (0, 2), t: (1, 2)),
-            (h: (1, 2), t: (1, 2)),
-            (h: (2, 2), t: (1, 2)),
-        ]
-    }
-
-    fn example_has_visited_grid() -> Grid2D<HasVisited<N>> {
-        // `rust_fmt` insists on restructuring this array, so separate constants it is
-        const ROW_0: &str = " /XX/ ";
-        const ROW_1: &str = " //XX/";
-        const ROW_2: &str = "/XXXX/";
-        const ROW_3: &str = "    X ";
-        const ROW_4: &str = "XXXX/ ";
-        const HAS_VISITED_GRID_STRS: [&str; 5_usize] = [ROW_0, ROW_1, ROW_2, ROW_3, ROW_4];
-
-        Grid2D::try_from_cells_and_width(
-            HAS_VISITED_GRID_STRS
-                .iter()
-                .map(|s: &&str| s.chars())
-                .flatten()
-                .map(HasVisited::<N>::try_from)
-                .map(Result::unwrap)
-                .collect(),
-            6_usize,
-        )
-        .unwrap()
     }
 }

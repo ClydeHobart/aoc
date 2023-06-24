@@ -207,7 +207,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static, std::ops::Range};
+    use {super::*, std::ops::Range, std::sync::OnceLock};
 
     const SOLUTION_STR: &str = concat!(
         "5483143223\n",
@@ -222,43 +222,43 @@ mod tests {
         "5283751526\n",
     );
 
-    lazy_static! {
-        static ref SOLUTION: Solution = solution();
-    }
-
-    fn solution() -> Solution {
+    fn solution() -> &'static Solution {
         macro_rules! lights {
             [ $( [ $( $light:expr ),* ], )* ] => { vec![ $( $( Light($light), )* )* ] };
         }
 
-        Solution(
-            Grid2D::try_from_cells_and_dimensions(
-                lights![
-                    [b'5', b'4', b'8', b'3', b'1', b'4', b'3', b'2', b'2', b'3'],
-                    [b'2', b'7', b'4', b'5', b'8', b'5', b'4', b'7', b'1', b'1'],
-                    [b'5', b'2', b'6', b'4', b'5', b'5', b'6', b'1', b'7', b'3'],
-                    [b'6', b'1', b'4', b'1', b'3', b'3', b'6', b'1', b'4', b'6'],
-                    [b'6', b'3', b'5', b'7', b'3', b'8', b'5', b'4', b'7', b'8'],
-                    [b'4', b'1', b'6', b'7', b'5', b'2', b'4', b'6', b'4', b'5'],
-                    [b'2', b'1', b'7', b'6', b'8', b'4', b'1', b'7', b'2', b'1'],
-                    [b'6', b'8', b'8', b'2', b'8', b'8', b'1', b'1', b'3', b'4'],
-                    [b'4', b'8', b'4', b'6', b'8', b'4', b'8', b'5', b'5', b'4'],
-                    [b'5', b'2', b'8', b'3', b'7', b'5', b'1', b'5', b'2', b'6'],
-                ],
-                Solution::DIMENSIONS,
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            Solution(
+                Grid2D::try_from_cells_and_dimensions(
+                    lights![
+                        [b'5', b'4', b'8', b'3', b'1', b'4', b'3', b'2', b'2', b'3'],
+                        [b'2', b'7', b'4', b'5', b'8', b'5', b'4', b'7', b'1', b'1'],
+                        [b'5', b'2', b'6', b'4', b'5', b'5', b'6', b'1', b'7', b'3'],
+                        [b'6', b'1', b'4', b'1', b'3', b'3', b'6', b'1', b'4', b'6'],
+                        [b'6', b'3', b'5', b'7', b'3', b'8', b'5', b'4', b'7', b'8'],
+                        [b'4', b'1', b'6', b'7', b'5', b'2', b'4', b'6', b'4', b'5'],
+                        [b'2', b'1', b'7', b'6', b'8', b'4', b'1', b'7', b'2', b'1'],
+                        [b'6', b'8', b'8', b'2', b'8', b'8', b'1', b'1', b'3', b'4'],
+                        [b'4', b'8', b'4', b'6', b'8', b'4', b'8', b'5', b'5', b'4'],
+                        [b'5', b'2', b'8', b'3', b'7', b'5', b'1', b'5', b'2', b'6'],
+                    ],
+                    Solution::DIMENSIONS,
+                )
+                .unwrap_or_else(|| Grid2D::empty(Solution::DIMENSIONS)),
             )
-            .unwrap_or_else(|| Grid2D::empty(Solution::DIMENSIONS)),
-        )
+        })
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(SOLUTION_STR), Ok(solution()))
+        assert_eq!(Solution::try_from(SOLUTION_STR).as_ref(), Ok(solution()))
     }
 
     #[test]
     fn test_run() {
-        let mut solution: Solution = SOLUTION.clone();
+        let mut solution: Solution = solution().clone();
         let mut total_steps: usize = 0_usize;
         let mut flashes: usize = 0_usize;
 
@@ -589,6 +589,6 @@ mod tests {
 
     #[test]
     fn test_steps_until_syncrhonization() {
-        assert_eq!(SOLUTION.steps_until_synchronization(), 195_usize);
+        assert_eq!(solution().steps_until_synchronization(), 195_usize);
     }
 }

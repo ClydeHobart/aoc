@@ -316,7 +316,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const SOLUTION_1_STR: &str = concat!(
         "start-A\n",
@@ -360,12 +360,6 @@ mod tests {
         "start-RW\n",
     );
 
-    lazy_static! {
-        static ref SOLUTION_1: Solution = solution_1();
-        static ref SOLUTION_2: Solution = solution_2();
-        static ref SOLUTION_3: Solution = solution_3();
-    }
-
     macro_rules! tag {
         ($tag:expr) => {
             Tag::try_from_str($tag).unwrap()
@@ -379,49 +373,70 @@ mod tests {
         }, )* ]) };
     }
 
-    fn solution_1() -> Solution {
-        solution![
-            { "start",  [ 2, 3 ] }, // 0
-            { "end",    [ 2, 3 ] }, // 1
-            { "A",      [ 0, 1, 3, 4 ] }, // 2
-            { "b",      [ 0, 1, 2, 5 ] }, // 3
-            { "c",      [ 2 ] }, // 4
-            { "d",      [ 3 ] }, // 5
-        ]
+    fn solution_1() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            solution![
+                { "start",  [ 2, 3 ] }, // 0
+                { "end",    [ 2, 3 ] }, // 1
+                { "A",      [ 0, 1, 3, 4 ] }, // 2
+                { "b",      [ 0, 1, 2, 5 ] }, // 3
+                { "c",      [ 2 ] }, // 4
+                { "d",      [ 3 ] }, // 5
+            ]
+        })
     }
 
-    fn solution_2() -> Solution {
-        solution![
-            { "start",  [ 2, 3, 4 ] }, // 0
-            { "end",    [ 2, 3 ] }, // 1
-            { "dc",     [ 0, 1, 3, 4, 5 ] }, // 2
-            { "HN",     [ 0, 1, 2, 4 ] }, // 3
-            { "kj",     [ 0, 2, 3, 6 ] }, // 4
-            { "LN",     [ 2 ] }, // 5
-            { "sa",     [ 4 ] }, // 6
-        ]
+    fn solution_2() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            solution![
+                { "start",  [ 2, 3, 4 ] }, // 0
+                { "end",    [ 2, 3 ] }, // 1
+                { "dc",     [ 0, 1, 3, 4, 5 ] }, // 2
+                { "HN",     [ 0, 1, 2, 4 ] }, // 3
+                { "kj",     [ 0, 2, 3, 6 ] }, // 4
+                { "LN",     [ 2 ] }, // 5
+                { "sa",     [ 4 ] }, // 6
+            ]
+        })
     }
 
-    fn solution_3() -> Solution {
-        solution![
-            { "start",  [ 4, 5, 8 ] }, // 0
-            { "end",    [ 2, 6 ] }, // 1
-            { "fs",     [ 1, 3, 4, 5 ] }, // 2
-            { "he",     [ 2, 4, 5, 6, 8, 9 ] }, // 3
-            { "DX",     [ 0, 2, 3, 5 ] }, // 4
-            { "pj",     [ 0, 2, 3, 4, 6, 8 ] }, // 5
-            { "zg",     [ 1, 3, 5, 7, 8 ] }, // 6
-            { "sl",     [ 6 ] }, // 7
-            { "RW",     [ 0, 3, 5, 6 ] }, // 8
-            { "WI",     [ 3 ] }, // 9
-        ]
+    fn solution_3() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            solution![
+                { "start",  [ 4, 5, 8 ] }, // 0
+                { "end",    [ 2, 6 ] }, // 1
+                { "fs",     [ 1, 3, 4, 5 ] }, // 2
+                { "he",     [ 2, 4, 5, 6, 8, 9 ] }, // 3
+                { "DX",     [ 0, 2, 3, 5 ] }, // 4
+                { "pj",     [ 0, 2, 3, 4, 6, 8 ] }, // 5
+                { "zg",     [ 1, 3, 5, 7, 8 ] }, // 6
+                { "sl",     [ 6 ] }, // 7
+                { "RW",     [ 0, 3, 5, 6 ] }, // 8
+                { "WI",     [ 3 ] }, // 9
+            ]
+        })
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(SOLUTION_1_STR), Ok(solution_1()));
-        assert_eq!(Solution::try_from(SOLUTION_2_STR), Ok(solution_2()));
-        assert_eq!(Solution::try_from(SOLUTION_3_STR), Ok(solution_3()));
+        assert_eq!(
+            Solution::try_from(SOLUTION_1_STR).as_ref(),
+            Ok(solution_1())
+        );
+        assert_eq!(
+            Solution::try_from(SOLUTION_2_STR).as_ref(),
+            Ok(solution_2())
+        );
+        assert_eq!(
+            Solution::try_from(SOLUTION_3_STR).as_ref(),
+            Ok(solution_3())
+        );
     }
 
     #[test]
@@ -436,7 +451,7 @@ mod tests {
         }
 
         assert_eq!(
-            SOLUTION_1.count_paths_internal(false),
+            solution_1().count_paths_internal(false),
             paths! {
                 10,
                 [
@@ -454,7 +469,7 @@ mod tests {
             }
         );
         assert_eq!(
-            SOLUTION_2.count_paths_internal(false),
+            solution_2().count_paths_internal(false),
             paths! {
                 19,
                 [
@@ -480,7 +495,7 @@ mod tests {
                 ],
             }
         );
-        assert_eq!(SOLUTION_3.count_paths(), 226_usize);
+        assert_eq!(solution_3().count_paths(), 226_usize);
     }
 
     #[test]
@@ -495,7 +510,7 @@ mod tests {
         }
 
         assert_eq!(
-            SOLUTION_1.count_paths_internal(true),
+            solution_1().count_paths_internal(true),
             paths! {
                 36,
                 [
@@ -538,7 +553,7 @@ mod tests {
                 ],
             }
         );
-        assert_eq!(SOLUTION_2.count_paths_with_revisit(), 103_usize);
-        assert_eq!(SOLUTION_3.count_paths_with_revisit(), 3509_usize);
+        assert_eq!(solution_2().count_paths_with_revisit(), 103_usize);
+        assert_eq!(solution_3().count_paths_with_revisit(), 3509_usize);
     }
 }

@@ -260,7 +260,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lazy_static::lazy_static};
+    use {super::*, std::sync::OnceLock};
 
     const SA_PAIRS_STR: &str = concat!(
         "2-4,6-8\n",
@@ -271,41 +271,44 @@ mod tests {
         "2-6,4-8\n"
     );
 
-    lazy_static! {
-        static ref SOLUTION: Solution = solution();
-    }
+    fn solution() -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
 
-    fn solution() -> Solution {
-        macro_rules! solution {
-            [ $( ( $sa_0:expr, $sa_1:expr ), )* ] => {
-                Solution(vec![ $(
-                    SectionAssignmentPair(SectionAssignment($sa_0), SectionAssignment($sa_1)),
-                )* ])
-            };
-        }
+        ONCE_LOCK.get_or_init(|| {
+            macro_rules! solution {
+                [ $( ( $sa_0:expr, $sa_1:expr ), )* ] => {
+                    Solution(vec![ $(
+                        SectionAssignmentPair(SectionAssignment($sa_0), SectionAssignment($sa_1)),
+                    )* ])
+                };
+            }
 
-        solution![
-            (2..=4, 6..=8),
-            (2..=3, 4..=5),
-            (5..=7, 7..=9),
-            (2..=8, 3..=7),
-            (6..=6, 4..=6),
-            (2..=6, 4..=8),
-        ]
+            solution![
+                (2..=4, 6..=8),
+                (2..=3, 4..=5),
+                (5..=7, 7..=9),
+                (2..=8, 3..=7),
+                (6..=6, 4..=6),
+                (2..=6, 4..=8),
+            ]
+        })
     }
 
     #[test]
     fn test_try_from_str() {
-        assert_eq!(Solution::try_from(SA_PAIRS_STR), Ok(solution()));
+        assert_eq!(Solution::try_from(SA_PAIRS_STR).as_ref(), Ok(solution()));
     }
 
     #[test]
     fn test_count_sa_pairs_with_fully_contained_sas() {
-        assert_eq!(SOLUTION.count_sa_pairs_with_fully_contained_sas(), 2_usize);
+        assert_eq!(
+            solution().count_sa_pairs_with_fully_contained_sas(),
+            2_usize
+        );
     }
 
     #[test]
     fn test_count_overlapping_sa_pairs() {
-        assert_eq!(SOLUTION.count_overlapping_sa_pairs(), 4_usize);
+        assert_eq!(solution().count_overlapping_sa_pairs(), 4_usize);
     }
 }
