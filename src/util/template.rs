@@ -45,6 +45,6 @@ mod tests {
 
     #[test]
     fn test_try_from_str() {
-        // assert_eq!(Solution::try_from(SOLUTION_STR).as_ref(), Ok(solution()))
+        // assert_eq!(Solution::try_from(SOLUTION_STR).as_ref(), Ok(solution()));
     }
 }

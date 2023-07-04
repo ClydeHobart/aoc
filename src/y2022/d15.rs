@@ -1,6 +1,6 @@
 use {
     self::quad_tree::*,
-    aoc::*,
+    crate::*,
     glam::IVec2,
     std::{
         iter::Peekable,
@@ -9,6 +9,9 @@ use {
         str::{FromStr, Split},
     },
 };
+
+#[cfg(test)]
+use std::ops::RangeInclusive;
 
 #[derive(Debug, Default, PartialEq)]
 struct Corners([IVec2; 4_usize]);
@@ -38,19 +41,19 @@ struct SensorReading {
 }
 
 #[derive(Debug, PartialEq)]
-struct InvalidPrefixError<'s> {
+pub struct InvalidPrefixError<'s> {
     actual: &'s str,
     prefix: &'static str,
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseComponentError<'s> {
+pub enum ParseComponentError<'s> {
     InvalidPrefix(InvalidPrefixError<'s>),
     FailedToParse(ParseIntError),
 }
 
 #[derive(Debug, PartialEq)]
-enum ParsePositionError<'s> {
+pub enum ParsePositionError<'s> {
     InvalidPrefix(InvalidPrefixError<'s>),
     NoXToken,
     FailedToParseX(ParseComponentError<'s>),
@@ -60,7 +63,7 @@ enum ParsePositionError<'s> {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseSensorReadingError<'s> {
+pub enum ParseSensorReadingError<'s> {
     NoSensorToken,
     FailedToParseSensor(ParsePositionError<'s>),
     NoBeaconToken,
@@ -616,48 +619,41 @@ mod quad_tree {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day15.txt");
+pub struct Solution(SensorReadings);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(
-                input_file_path,
-                |input: &str| match SensorReadings::try_from(input) {
-                    Ok(mut sensor_readings) => {
-                        const RANGE: Range<i32> = 0_i32..4_000_001_i32;
+impl Solution {
+    fn count_positions_that_cannot_contain_beacon_in_row(&mut self, row: i32) -> usize {
+        self.0
+            .count_positions_that_cannot_contain_beacon_in_row(row)
+    }
 
-                        println!(
-                            "sensor_readings\
-                            .count_positions_that_cannot_contain_beacon_in_row(2_000_000_i32) == \
-                            {}\n
-                            quad tree tuning frequency == {:?}",
-                            sensor_readings
-                                .count_positions_that_cannot_contain_beacon_in_row(2_000_000_i32),
-                            BeaconPresenceQuadTree::from_readings_and_ranges(
-                                &sensor_readings.readings,
-                                RANGE,
-                                RANGE,
-                            )
-                            .unwrap()
-                            .find_gap()
-                            .map(SensorReadings::tuning_frequency)
-                        );
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                },
-            )
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+    fn isolate_distress_beacon_tuning_frequency_in_range(
+        &self,
+        x_range: Range<i32>,
+        y_range: Range<i32>,
+    ) -> Option<i64> {
+        BeaconPresenceQuadTree::from_readings_and_ranges(&self.0.readings, x_range, y_range)
+            .ok()
+            .and_then(|bpqt| bpqt.find_gap().map(SensorReadings::tuning_frequency))
+    }
+}
+
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.count_positions_that_cannot_contain_beacon_in_row(2_000_000_i32));
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self
+            .isolate_distress_beacon_tuning_frequency_in_range(0..4_000_001_i32, 0..4_000_001_i32));
+    }
+}
+
+impl<'s> TryFrom<&'s str> for Solution {
+    type Error = ParseSensorReadingError<'s>;
+
+    fn try_from(value: &'s str) -> Result<Self, Self::Error> {
+        Ok(Self(value.try_into()?))
     }
 }
 
@@ -721,13 +717,12 @@ mod tests {
 
     #[test]
     fn test_quad_tree_find_gap() {
-        let mut quad_tree: BeaconPresenceQuadTree =
-            BeaconPresenceQuadTree::from_readings_and_ranges(
-                &example_sensor_readings().readings,
-                RANGE,
-                RANGE,
-            )
-            .unwrap();
+        let quad_tree: BeaconPresenceQuadTree = BeaconPresenceQuadTree::from_readings_and_ranges(
+            &example_sensor_readings().readings,
+            RANGE,
+            RANGE,
+        )
+        .unwrap();
 
         assert_eq!(quad_tree.find_gap(), Some(UNDETECTED_BEACON))
     }
