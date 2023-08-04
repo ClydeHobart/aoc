@@ -1,27 +1,31 @@
-pub use {graph::*, grid::*};
+pub use {graph::*, grid::*, imat3::*};
 
 use {
     clap::Parser,
+    glam::IVec3,
     memmap::Mmap,
     nom::{
         bytes::complete::tag,
-        combinator::{map, map_res, rest},
+        character::complete::digit1,
+        combinator::{map, map_res, opt, rest},
         sequence::tuple,
         IResult,
     },
+    num::{Integer, NumCast, ToPrimitive},
     std::{
         any::type_name,
         cmp::{max, min},
         fmt::Debug,
         fs::File,
         io::{Error as IoError, ErrorKind, Result as IoResult},
-        ops::{Deref, DerefMut},
+        ops::{Deref, DerefMut, Range},
         str::{from_utf8, FromStr, Utf8Error},
     },
 };
 
 mod graph;
 mod grid;
+mod imat3;
 pub mod minimal_value_with_all_digit_pairs;
 
 #[allow(dead_code, unused_imports, unused_variables)]
@@ -467,4 +471,115 @@ pub fn validate_prefix<'s, E, F: FnOnce(&'s str) -> E>(
     f: F,
 ) -> Result<&'s str, E> {
     validate_prefix_and_suffix(value, prefix, "", f)
+}
+
+pub fn parse_integer<'i, I: FromStr + Integer>(input: &'i str) -> IResult<&'i str, I> {
+    map(
+        tuple((
+            map(opt(tag("-")), |minus| {
+                if minus.is_some() {
+                    I::zero() - I::one()
+                } else {
+                    I::one()
+                }
+            }),
+            map_res(digit1, I::from_str),
+        )),
+        |(sign, bound)| sign * bound,
+    )(input)
+}
+
+pub const fn imat3_const_inverse(imat3: &IMat3) -> IMat3 {
+    let tmp0: IVec3 = ivec3_const_cross(imat3.y_axis, imat3.z_axis);
+    let tmp1: IVec3 = ivec3_const_cross(imat3.z_axis, imat3.x_axis);
+    let tmp2: IVec3 = ivec3_const_cross(imat3.x_axis, imat3.y_axis);
+    let det: i32 = ivec3_const_dot(imat3.z_axis, tmp2);
+
+    IMat3::from_rows(
+        ivec3_const_div_i32(tmp0, det),
+        ivec3_const_div_i32(tmp1, det),
+        ivec3_const_div_i32(tmp2, det),
+    )
+}
+
+pub const fn imat3_const_mul_ivec3(lhs: &IMat3, rhs: IVec3) -> IVec3 {
+    ivec3_const_add(
+        ivec3_const_add(
+            ivec3_const_mul_i32(lhs.x_axis, rhs.x),
+            ivec3_const_mul_i32(lhs.y_axis, rhs.y),
+        ),
+        ivec3_const_mul_i32(lhs.z_axis, rhs.z),
+    )
+}
+
+pub const fn imat3_const_transpose(imat3: &IMat3) -> IMat3 {
+    IMat3::from_rows(imat3.x_axis, imat3.y_axis, imat3.z_axis)
+}
+
+pub const fn imat3_const_mul(lhs: &IMat3, rhs: &IMat3) -> IMat3 {
+    IMat3::from_cols(
+        imat3_const_mul_ivec3(lhs, rhs.x_axis),
+        imat3_const_mul_ivec3(lhs, rhs.y_axis),
+        imat3_const_mul_ivec3(lhs, rhs.z_axis),
+    )
+}
+
+pub const fn ivec3_const_add(lhs: IVec3, rhs: IVec3) -> IVec3 {
+    IVec3::new(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z)
+}
+
+pub const fn ivec3_const_cross(lhs: IVec3, rhs: IVec3) -> IVec3 {
+    IVec3 {
+        x: lhs.y * rhs.z - rhs.y * lhs.z,
+        y: lhs.z * rhs.x - rhs.z * lhs.x,
+        z: lhs.x * rhs.y - rhs.x * lhs.y,
+    }
+}
+
+pub const fn ivec3_const_dot(lhs: IVec3, rhs: IVec3) -> i32 {
+    (lhs.x * rhs.x) + (lhs.y * rhs.y) + (lhs.z * rhs.z)
+}
+
+pub const fn ivec3_const_div_i32(lhs: IVec3, rhs: i32) -> IVec3 {
+    IVec3::new(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs)
+}
+
+pub const fn ivec3_const_mul_i32(lhs: IVec3, rhs: i32) -> IVec3 {
+    IVec3::new(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs)
+}
+
+pub const fn triangle_number(n: usize) -> usize {
+    n * (n + 1_usize) / 2_usize
+}
+
+pub trait TryAsRange<T: NumCast> {
+    fn try_as_range(&self) -> Option<Range<T>>;
+}
+
+impl<T: Clone + Copy + ToPrimitive + Sized, U: NumCast> TryAsRange<U> for Range<T> {
+    fn try_as_range(&self) -> Option<Range<U>> {
+        Some(<U as NumCast>::from(self.start)?..<U as NumCast>::from(self.end)?)
+    }
+}
+
+#[cfg(target_pointer_width = "16")]
+pub type UsizeEquivalentInteger = u16;
+
+#[cfg(target_pointer_width = "32")]
+pub type UsizeEquivalentInteger = u32;
+
+#[cfg(target_pointer_width = "64")]
+pub type UsizeEquivalentInteger = u64;
+
+pub trait AsRangeUsize {
+    fn as_range_usize(&self) -> Range<usize>;
+}
+
+impl<T: Clone + Copy + ToPrimitive + Sized> AsRangeUsize for Range<T>
+where
+    UsizeEquivalentInteger: From<T>,
+{
+    fn as_range_usize(&self) -> Range<usize> {
+        self.try_as_range().unwrap()
+    }
 }

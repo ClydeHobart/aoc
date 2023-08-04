@@ -3,13 +3,12 @@ use {
     glam::IVec2,
     nom::{
         bytes::complete::tag,
-        character::complete::digit1,
-        combinator::{map, map_res, opt},
+        combinator::map,
         error::Error,
         sequence::{preceded, separated_pair, tuple},
         Err, IResult,
     },
-    std::{collections::HashSet, ops::Range, str::FromStr},
+    std::{collections::HashSet, ops::Range},
 };
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -252,19 +251,12 @@ impl Solution {
             tuple((tag(bound), tag("="))),
             map(
                 separated_pair(
-                    Self::parse_bound,
+                    parse_integer::<i32>,
                     tag(".."),
-                    map(Self::parse_bound, |end: i32| end + 1_i32),
+                    map(parse_integer::<i32>, |end: i32| end + 1_i32),
                 ),
                 |(start, end)| start..end,
             ),
-        )(input)
-    }
-
-    fn parse_bound<'i>(input: &'i str) -> IResult<&'i str, i32> {
-        map(
-            tuple((opt(tag("-")), map_res(digit1, i32::from_str))),
-            |(minus, bound)| if minus.is_some() { -bound } else { bound },
         )(input)
     }
 
@@ -295,7 +287,9 @@ impl<'i> TryFrom<&'i str> for Solution {
 mod tests {
     use {
         super::*,
-        nom::{character::complete::multispace1, multi::many0, sequence::terminated},
+        nom::{
+            character::complete::multispace1, combinator::opt, multi::many0, sequence::terminated,
+        },
         std::sync::OnceLock,
     };
 
@@ -332,7 +326,7 @@ mod tests {
 
     fn parse_trajectory<'i>(input: &'i str) -> IResult<&'i str, IVec2> {
         map(
-            separated_pair(Solution::parse_bound, tag(","), Solution::parse_bound),
+            separated_pair(parse_integer::<i32>, tag(","), parse_integer::<i32>),
             |(x, y)| IVec2::new(x, y),
         )(input)
     }
