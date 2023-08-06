@@ -18,7 +18,7 @@ use {
         fmt::Debug,
         fs::File,
         io::{Error as IoError, ErrorKind, Result as IoResult},
-        ops::{Deref, DerefMut, Range},
+        ops::{Deref, DerefMut, Range, RangeInclusive},
         str::{from_utf8, FromStr, Utf8Error},
     },
 };
@@ -489,6 +489,10 @@ pub fn parse_integer<'i, I: FromStr + Integer>(input: &'i str) -> IResult<&'i st
     )(input)
 }
 
+pub trait Parse: Sized {
+    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self>;
+}
+
 pub const fn imat3_const_inverse(imat3: &IMat3) -> IMat3 {
     let tmp0: IVec3 = ivec3_const_cross(imat3.y_axis, imat3.z_axis);
     let tmp1: IVec3 = ivec3_const_cross(imat3.z_axis, imat3.x_axis);
@@ -583,3 +587,30 @@ where
         self.try_as_range().unwrap()
     }
 }
+
+pub trait SmallRangeInclusiveTraits: Clone + Default + Debug + PartialEq {}
+
+impl<T: Clone + Debug + Default + PartialEq> SmallRangeInclusiveTraits for T {}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SmallRangeInclusive<T: SmallRangeInclusiveTraits> {
+    pub start: T,
+    pub end: T,
+}
+
+impl<T: SmallRangeInclusiveTraits> From<RangeInclusive<T>> for SmallRangeInclusive<T> {
+    fn from(value: RangeInclusive<T>) -> Self {
+        Self {
+            start: value.start().clone(),
+            end: value.end().clone(),
+        }
+    }
+}
+
+impl<T: SmallRangeInclusiveTraits> From<SmallRangeInclusive<T>> for RangeInclusive<T> {
+    fn from(value: SmallRangeInclusive<T>) -> Self {
+        value.start..=value.end
+    }
+}
+
+impl<T: Copy + SmallRangeInclusiveTraits> Copy for SmallRangeInclusive<T> {}

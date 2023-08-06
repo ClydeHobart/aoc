@@ -5,13 +5,19 @@ use {
         character::complete::{digit1, line_ending},
         combinator::{map_res, opt},
         error::Error,
-        Err,
+        Err, IResult,
     },
     std::str::FromStr,
 };
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct Solution;
+
+impl Parse for Solution {
+    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
+        todo!()
+    }
+}
 
 impl RunQuestions for Solution {
     fn q1_internal(&mut self, args: &QuestionArgs) {
@@ -27,7 +33,7 @@ impl<'i> TryFrom<&'i str> for Solution {
     type Error = Err<Error<&'i str>>;
 
     fn try_from(input: &'i str) -> Result<Self, Self::Error> {
-        todo!();
+        Ok(Self::parse(input)?.1)
     }
 }
 
