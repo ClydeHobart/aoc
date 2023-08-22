@@ -156,6 +156,16 @@ impl<'s> BreadthFirstSearch for BasinSizeFinder<'s> {
         #[cfg(test)]
         self.state.positions.push(*_to);
     }
+
+    fn reset(&mut self) {
+        self.state.size = 1_usize;
+
+        #[cfg(test)]
+        {
+            self.state.positions.clear();
+            self.state.positions.push(self.state.start);
+        }
+    }
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]

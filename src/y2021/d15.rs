@@ -112,24 +112,28 @@ impl<'s> AStar for MinimalTotalRiskPathFinder<'s> {
         self.finder_grid.get(*vertex).unwrap().total_risk
     }
 
-    fn cost_between_neighbors(&self, _from: &Self::Vertex, to: &Self::Vertex) -> Self::Cost {
-        **self.solution.get(*to).unwrap() as u32
-    }
-
     fn heuristic(&self, vertex: &Self::Vertex) -> Self::Cost {
         abs_sum_2d(self.solution.max_dimensions() - *vertex) as u32
     }
 
-    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>) {
+    fn neighbors(
+        &self,
+        vertex: &Self::Vertex,
+        neighbors: &mut Vec<OpenSetElement<Self::Vertex, Self::Cost>>,
+    ) {
         neighbors.clear();
         neighbors.extend(
             Direction::iter()
                 .map(|dir: Direction| *vertex + dir.vec())
-                .filter(|vertex| self.solution.contains(*vertex)),
+                .filter_map(|vertex| {
+                    self.solution
+                        .get(vertex)
+                        .map(|cost| OpenSetElement(vertex, (**cost) as u32))
+                }),
         )
     }
 
-    fn update_score(
+    fn update_vertex(
         &mut self,
         from: &Self::Vertex,
         to: &Self::Vertex,
@@ -141,6 +145,11 @@ impl<'s> AStar for MinimalTotalRiskPathFinder<'s> {
         finder_cell.total_risk = cost;
         finder_cell.previous = Some((*from - *to).try_into().unwrap());
     }
+
+    fn reset(&mut self) {
+        self.finder_grid.cells_mut().fill_with(Default::default);
+        self.finder_grid.get_mut(IVec2::ZERO).unwrap().total_risk = 0_u32;
+    }
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -151,13 +160,9 @@ impl Solution {
     const ENTIRE_CAVE_SCALE: i32 = 5_i32;
 
     fn find_lowest_total_risk_path(&self) -> Option<(Vec<IVec2>, u32)> {
-        let mut finder_grid: Grid2D<FinderCell> = Grid2D::default(self.dimensions());
-
-        finder_grid.get_mut(IVec2::ZERO).unwrap().total_risk = 0_u32;
-
         MinimalTotalRiskPathFinder {
             solution: self,
-            finder_grid,
+            finder_grid: Grid2D::default(self.dimensions()),
         }
         .run()
         .map(|path: Vec<IVec2>| {

@@ -192,14 +192,9 @@ struct HeightGridAStarAscent<'h> {
 
 impl<'h> HeightGridAStarAscent<'h> {
     fn new(height_grid: &'h HeightGrid) -> Self {
-        let mut shortest_paths: Grid2D<ShortestPath> =
-            Grid2D::default(height_grid.heights.dimensions());
-
-        shortest_paths.get_mut(height_grid.start).unwrap().score = 0_usize;
-
         Self {
             height_grid,
-            shortest_paths,
+            shortest_paths: Grid2D::default(height_grid.heights.dimensions()),
         }
     }
 }
@@ -240,29 +235,31 @@ impl<'h> AStar for HeightGridAStarAscent<'h> {
         self.shortest_paths.get(*vertex).unwrap().score
     }
 
-    fn cost_between_neighbors(&self, _: &Self::Vertex, _: &Self::Vertex) -> Self::Cost {
-        1_usize
-    }
-
     fn heuristic(&self, vertex: &Self::Vertex) -> Self::Cost {
         let abs: IVec2 = (self.height_grid.end - *vertex).abs();
 
         (abs.x + abs.y) as usize
     }
 
-    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>) {
+    fn neighbors(
+        &self,
+        vertex: &Self::Vertex,
+        neighbors: &mut Vec<OpenSetElement<Self::Vertex, Self::Cost>>,
+    ) {
         neighbors.clear();
 
         let is_visitable: IsVisitable = *self.height_grid.is_visitable.get(*vertex).unwrap();
 
-        for dir in Direction::iter() {
+        neighbors.extend(Direction::iter().filter_map(|dir| {
             if is_visitable.get(dir, true) {
-                neighbors.push(*vertex + dir.vec());
+                Some(OpenSetElement(*vertex + dir.vec(), 1_usize))
+            } else {
+                None
             }
-        }
+        }));
     }
 
-    fn update_score(
+    fn update_vertex(
         &mut self,
         from: &Self::Vertex,
         to: &Self::Vertex,
@@ -273,6 +270,14 @@ impl<'h> AStar for HeightGridAStarAscent<'h> {
 
         shortest_path.predecessor = Some((*from - *to).try_into().unwrap());
         shortest_path.score = cost;
+    }
+
+    fn reset(&mut self) {
+        self.shortest_paths.cells_mut().fill_with(Default::default);
+        self.shortest_paths
+            .get_mut(self.height_grid.start)
+            .unwrap()
+            .score = 0_usize;
     }
 }
 
@@ -334,6 +339,10 @@ impl<'h> BreadthFirstSearch for HeightGridBreadthFirstSearchDescent<'h> {
 
     fn update_parent(&mut self, from: &Self::Vertex, to: &Self::Vertex) {
         *self.predecessors.get_mut(*to).unwrap() = Some((*from - *to).try_into().unwrap());
+    }
+
+    fn reset(&mut self) {
+        self.predecessors.cells_mut().fill(None);
     }
 }
 
