@@ -4,8 +4,8 @@ use {
     glam::IVec2,
     nom::{
         bytes::complete::tag,
-        character::complete::{line_ending, one_of},
-        combinator::{map, map_opt},
+        character::complete::line_ending,
+        combinator::map_opt,
         error::Error,
         multi::many_m_n,
         sequence::{delimited, terminated, tuple},
@@ -15,7 +15,6 @@ use {
         collections::{HashMap, VecDeque},
         mem::{transmute, MaybeUninit},
         ops::{BitAnd, Deref, DerefMut, Range, RangeInclusive},
-        str::from_utf8_unchecked,
         sync::OnceLock,
     },
 };
@@ -1232,41 +1231,23 @@ where
     }
 }
 
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone, Copy, PartialEq)]
-#[repr(u8)]
-enum Cell {
-    Void = Self::VOID,
-    Wall = Self::WALL,
-    Vacant = Self::VACANT,
-    Amber = Self::AMBER,
-    Bronze = Self::BRONZE,
-    Copper = Self::COPPER,
-    Desert = Self::DESERT,
+define_cell! {
+    #[repr(u8)]
+    #[cfg_attr(test, derive(Debug))]
+    #[derive(Clone, Copy, PartialEq)]
+    enum Cell {
+        Void = VOID = b' ',
+        Wall = WALL = b'#',
+        Vacant = VACANT = b'.',
+        Amber = AMBER = b'A',
+        Bronze = BRONZE = b'B',
+        Copper = COPPER = b'C',
+        Desert = DESERT = b'D',
+    }
 }
 
 impl Cell {
-    const VOID: u8 = b' ';
-    const WALL: u8 = b'#';
-    const VACANT: u8 = b'.';
-    const AMBER: u8 = b'A';
-    const BRONZE: u8 = b'B';
-    const COPPER: u8 = b'C';
-    const DESERT: u8 = b'D';
     const AMPHIPOD_TYPES: usize = (Cell::DESERT + 1_u8 - Cell::AMBER) as usize;
-    const STR: &str =
-        // SAFETY: Trivial
-        unsafe {
-            from_utf8_unchecked(&[
-                Cell::VOID,
-                Cell::WALL,
-                Cell::VACANT,
-                Cell::AMBER,
-                Cell::BRONZE,
-                Cell::COPPER,
-                Cell::DESERT,
-            ])
-        };
 
     fn amphipod_index(self) -> Option<usize> {
         match self {
@@ -1278,42 +1259,6 @@ impl Cell {
     #[inline(always)]
     const fn energy_per_cell_for_amphipod_index(amphipod_index: usize) -> u32 {
         10_u32.pow(amphipod_index as u32)
-    }
-}
-
-/// SAFETY: Trivial
-unsafe impl IsValidAscii for Cell {}
-
-impl Parse for Cell {
-    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
-        map(one_of(Cell::STR), |value: char| {
-            Cell::try_from(value).unwrap()
-        })(input)
-    }
-}
-
-impl TryFrom<u8> for Cell {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            Self::VOID => Ok(Self::Void),
-            Self::WALL => Ok(Self::Wall),
-            Self::VACANT => Ok(Self::Vacant),
-            Self::AMBER => Ok(Self::Amber),
-            Self::BRONZE => Ok(Self::Bronze),
-            Self::COPPER => Ok(Self::Copper),
-            Self::DESERT => Ok(Self::Desert),
-            _ => Err(()),
-        }
-    }
-}
-
-impl TryFrom<char> for Cell {
-    type Error = ();
-
-    fn try_from(value: char) -> Result<Self, Self::Error> {
-        (value as u8).try_into()
     }
 }
 

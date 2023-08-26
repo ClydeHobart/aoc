@@ -5,9 +5,9 @@ use {
     glam::{BVec2, IVec2},
     nom::{
         character::complete::{line_ending, one_of},
-        combinator::{map, map_parser, opt},
+        combinator::{map, opt},
         error::{Error as NomError, ErrorKind as NomErrorKind},
-        multi::many0,
+        multi::many0_count,
         sequence::tuple,
         Err,
     },
@@ -329,47 +329,71 @@ impl<T: Default> Grid2D<T> {
 
 impl<T: Parse> Parse for Grid2D<T> {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
-        let mut cols: Option<i32> = None;
-        let mut rows: i32 = 0_i32;
-        let mut col: i32 = 0_i32;
-        let failure = || -> Err<NomError<&'i str>> {
-            Err::Failure(NomError::new(input, NomErrorKind::ManyMN))
-        };
+        let mut width: Option<usize> = None;
+        // let failure = || -> Err<NomError<&'i str>> {
+        //     Err::Failure(NomError::new(input, NomErrorKind::ManyMN))
+        // };
 
-        let (input, cells): (&str, Vec<T>) = many0(map_parser(
-            map(tuple((T::parse, opt(line_ending))), Some),
-            |some_cell_opt_line_ending: Option<(T, Option<&str>)>| {
-                let (cell, opt_line_ending): (T, Option<_>) = some_cell_opt_line_ending.unwrap();
+        // let (input, cells): (&str, Vec<T>) = many0(map_parser(
+        //     map(tuple((T::parse, opt(line_ending))), Some),
+        //     |some_cell_opt_line_ending: Option<(T, Option<&str>)>| {
+        //         let (cell, opt_line_ending): (T, Option<_>) = some_cell_opt_line_ending.unwrap();
 
-                col += 1_i32;
+        //         col += 1_i32;
+
+        //         if opt_line_ending.is_some() {
+        //             match cols {
+        //                 Some(cols) if cols != col => Err(failure()),
+        //                 _ => {
+        //                     cols = Some(col);
+        //                     col = 0_i32;
+
+        //                     Ok((None, cell))
+        //                 }
+        //             }
+        //         } else {
+        //             Ok((None, cell))
+        //         }
+        //     },
+        // ))(input)?;
+        let mut cells: Vec<T> = Vec::new();
+        let (input, _) = many0_count(map_res(
+            tuple((T::parse, opt(line_ending))),
+            |(cell, opt_line_ending)| -> Result<(), ()> {
+                cells.push(cell);
 
                 if opt_line_ending.is_some() {
-                    match cols {
-                        Some(cols) if cols != col => Err(failure()),
-                        _ => {
-                            cols = Some(col);
-                            rows += 1_i32;
-                            col = 0_i32;
-
-                            Ok((None, cell))
+                    match width {
+                        Some(width) => {
+                            if cells.len() % width != 0_usize {
+                                Err(())?;
+                            }
+                        }
+                        None => {
+                            width = Some(cells.len());
                         }
                     }
-                } else {
-                    Ok((None, cell))
                 }
+
+                Ok(())
             },
         ))(input)?;
 
-        if col != 0_i32 {
-            Err(failure())
+        if let Some(width) = width {
+            if cells.len() % width != 0_usize {
+                Err(Err::Failure(NomError::new(input, NomErrorKind::ManyMN)))
+            } else {
+                Ok((
+                    input,
+                    Grid2D::try_from_cells_and_width(cells, width).unwrap(),
+                ))
+            }
         } else {
+            let width: usize = cells.len();
+
             Ok((
                 input,
-                Grid2D::try_from_cells_and_dimensions(
-                    cells,
-                    IVec2::new(cols.unwrap_or_default(), rows),
-                )
-                .unwrap(),
+                Grid2D::try_from_cells_and_width(cells, width).unwrap(),
             ))
         }
     }

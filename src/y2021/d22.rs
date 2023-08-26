@@ -64,25 +64,13 @@ impl Parse for RebootStep {
 #[cfg_attr(test, derive(Debug, PartialEq))]
 struct Children(Box<[Node]>);
 
-// #[cfg(test)]
-// #[cfg_attr(test, derive(Debug, PartialEq))]
-// struct Children(Vec<Node>);
-
 impl Children {
     fn as_slice(&self) -> &[Node] {
-        // #[cfg(not(test))]
-        return self.0.deref();
-
-        // #[cfg(test)]
-        // return self.0.as_slice();
+        self.0.deref()
     }
 
     fn as_mut_slice(&mut self) -> &mut [Node] {
-        // #[cfg(not(test))]
-        return self.0.deref_mut();
-
-        // #[cfg(test)]
-        // return self.0.as_mut_slice();
+        self.0.deref_mut()
     }
 }
 
@@ -94,16 +82,11 @@ enum NodeData {
 
 impl NodeData {
     fn default_parent<const CHILDREN: usize>() -> Self {
-        // #[cfg(not(test))]
         let children: Children = Children(Self::box_children::<CHILDREN>());
-
-        // #[cfg(test)]
-        // let children: Children = Children(Self::vec_children(CHILDREN));
 
         Self::Parent { children }
     }
 
-    // #[cfg(not(test))]
     fn box_children<const CHILDREN: usize>() -> Box<[Node]> {
         // SAFETY: Follow the expression within `from_raw` below.
         unsafe {
@@ -129,15 +112,6 @@ impl NodeData {
             })
         }
     }
-
-    // #[cfg(test)]
-    // fn vec_children(children: usize) -> Vec<Node> {
-    //     let mut vec_children: Vec<Node> = Vec::with_capacity(children);
-
-    //     vec_children.resize_with(children, Default::default);
-
-    //     vec_children
-    // }
 }
 
 #[derive(Clone, Copy, PartialEq)]

@@ -614,3 +614,63 @@ impl<T: SmallRangeInclusiveTraits> From<SmallRangeInclusive<T>> for RangeInclusi
 }
 
 impl<T: Copy + SmallRangeInclusiveTraits> Copy for SmallRangeInclusive<T> {}
+
+#[macro_export]
+macro_rules! define_cell {
+    {
+        #[repr(u8)]
+        $(#[$attr:meta])*
+        $pub:vis enum $cell:ident { $(
+            $variant:ident = $variant_const:ident = $variant_u8:expr
+        ),* $(,)? }
+    } => {
+        #[repr(u8)]
+        $(#[$attr])*
+        $pub enum $cell { $(
+            $variant = Self::$variant_const,
+        )* }
+
+        impl $cell {
+            $(
+                const $variant_const: u8 = $variant_u8;
+            )*
+            const STR: &str =
+                // SAFETY: Trivial
+                unsafe { ::std::str::from_utf8_unchecked(&[$(
+                    $cell::$variant_const,
+                )*]) };
+        }
+
+        unsafe impl IsValidAscii for $cell {}
+
+        impl Parse for $cell {
+            fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
+                ::nom::combinator::map(
+                    ::nom::character::complete::one_of($cell::STR),
+                    |value: char| { $cell::try_from(value).unwrap() }
+                )(input)
+            }
+        }
+
+        impl TryFrom<u8> for $cell {
+            type Error = ();
+
+            fn try_from(value: u8) -> Result<Self, Self::Error> {
+                match value {
+                    $(
+                        Self::$variant_const => Ok(Self::$variant),
+                    )*
+                    _ => Err(()),
+                }
+            }
+        }
+
+        impl TryFrom<char> for $cell {
+            type Error = ();
+
+            fn try_from(value: char) -> Result<Self, Self::Error> {
+                (value as u8).try_into()
+            }
+        }
+    }
+}
