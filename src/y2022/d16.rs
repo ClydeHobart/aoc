@@ -1,5 +1,5 @@
 use {
-    aoc::*,
+    crate::*,
     glam::{IVec2, IVec3, Vec3Swizzles},
     std::{
         cmp::Ordering,
@@ -29,10 +29,6 @@ use {
 /// My implementation of this approach does not work with the test input, but it does for my input.
 /// This doesn't feel amazing, but I don't have the time right now to implement a more correct
 /// solution.
-
-#[cfg(test)]
-#[macro_use]
-extern crate lazy_static;
 
 const MAX_TIME_STEPS: u16 = 30_u16;
 
@@ -117,13 +113,13 @@ impl ScanLine {
 }
 
 #[derive(Debug, PartialEq)]
-struct InvalidText<'s> {
+pub struct InvalidText<'s> {
     actual: &'s str,
     expected: &'static [&'static str],
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseScanLineError<'s> {
+pub enum ParseScanLineError<'s> {
     InvalidValveText(InvalidText<'s>),
     InvalidValveTag(&'s str),
     InvalidFlowRateText(InvalidText<'s>),
@@ -257,7 +253,7 @@ impl ScanLines {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseScanLinesError<'s> {
+pub enum ParseScanLinesError<'s> {
     InvalidScanLine(ParseScanLineError<'s>),
     TooManyValves,
     FlowRateSumTooLarge,
@@ -293,7 +289,7 @@ impl<'s> TryFrom<&'s str> for ScanLines {
 #[derive(Debug, PartialEq)]
 struct ScanLinesUsefulTripsFinder<'s> {
     scan_lines: &'s ScanLines,
-    sources: &'s mut Vec<u32>,
+    sources: &'s mut [u32],
     start: u32,
 }
 
@@ -404,6 +400,10 @@ impl<'s> BreadthFirstSearch for ScanLinesUsefulTripsFinder<'s> {
 
     fn update_parent(&mut self, from: &Self::Vertex, to: &Self::Vertex) {
         self.sources[*to as usize] = *from;
+    }
+
+    fn reset(&mut self) {
+        self.sources.fill(u32::MAX);
     }
 }
 
@@ -539,7 +539,7 @@ impl UsefulTrips {
 
 #[allow(dead_code)]
 #[derive(Debug, PartialEq)]
-enum UsefulTripsError {
+pub enum UsefulTripsError {
     InvalidPathBackToStart { start: u32, valve: u32 },
 }
 
@@ -642,7 +642,7 @@ mod question_1 {
             }
 
             self.state_ranges
-                .resize_rows(time_steps + 1_usize, Default::default);
+                .resize_rows_with(time_steps + 1_usize, Default::default);
 
             let mut new_states: Vec<PressureReleaseState> = Vec::new();
 
@@ -935,7 +935,7 @@ mod question_2_attempt_1 {
         /// The state indicating where each actor will travel to. Note that `state.valves_open` will
         /// not contain the bits for the two start states. Support for that can be added upon
         /// demand ;)
-        state: BiActorState,
+        pub(super) state: BiActorState,
 
         /// The position in `state_ranges` that this timeline was found in
         chain_entrance: IVec3,
@@ -1598,112 +1598,135 @@ mod question_2_attempt_1 {
     }
 }
 
-fn get_two_stateful_paths(
-    scan_lines: &ScanLines,
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution {
+    scan_lines: ScanLines,
+    useful_trips: UsefulTrips,
     start: u32,
-    time: usize,
-) -> [Vec<question_1::PressureReleaseState>; 2_usize] {
-    use question_1::*;
-
-    let mut useful_trips: UsefulTrips = scan_lines.useful_trips().unwrap();
-    let mut explorer_1: PressureReleaseExplorer =
-        PressureReleaseExplorer::new(scan_lines, &useful_trips);
-
-    explorer_1.explore_time_steps(time);
-
-    let stateful_path_1: Vec<PressureReleaseState> = explorer_1.find_optimal_path(start, time);
-    let stateless_path_1: Vec<u32> =
-        PressureReleaseExplorer::get_stateless_path(start, &stateful_path_1);
-
-    useful_trips.trim(&stateless_path_1);
-
-    let mut explorer_2: PressureReleaseExplorer =
-        PressureReleaseExplorer::new(scan_lines, &useful_trips);
-
-    explorer_2.explore_time_steps(time);
-
-    let stateful_path_2: Vec<PressureReleaseState> = explorer_2.find_optimal_path(start, time);
-
-    [stateful_path_1, stateful_path_2]
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day16.txt");
+impl Solution {
+    fn pressure_released_by_single_actor_within_30_min(&self) -> Option<i32> {
+        use question_1::*;
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                match ScanLines::try_from(input) {
-                    Ok(scan_lines) => {
-                        use question_1::*;
+        const TIME_STEPS: usize = 30_usize;
 
-                        let useful_trips: UsefulTrips = scan_lines.useful_trips().unwrap();
-                        let aa_tag: u16 = u16::from_ne_bytes([b'A', b'A']);
-                        let start: u32 = scan_lines
-                            .lines
-                            .iter()
-                            .position(|scan_line| scan_line.tag == aa_tag)
-                            .unwrap() as u32;
+        let mut pressure_release_explorer: PressureReleaseExplorer =
+            PressureReleaseExplorer::new(&self.scan_lines, &self.useful_trips);
 
-                        let mut pressure_release_explorer: PressureReleaseExplorer =
-                            PressureReleaseExplorer::new(&scan_lines, &useful_trips);
+        pressure_release_explorer.explore_time_steps(TIME_STEPS);
 
-                        pressure_release_explorer.explore_time_steps(30_usize);
+        let path: Vec<PressureReleaseState> =
+            pressure_release_explorer.find_optimal_path(self.start, TIME_STEPS);
 
-                        let path: Vec<PressureReleaseState> =
-                            pressure_release_explorer.find_optimal_path(start, 30_usize);
+        path.first()
+            .map(Self::map_pressure_release_state_to_pressure_released)
+    }
 
-                        println!("path.first() == {:#?}\npath == {:#?}", path.first(), path);
+    fn pressure_released_by_two_actors_within_26_min(&self) -> Option<i32> {
+        use question_1::*;
 
-                        let [path_a, path_b] = get_two_stateful_paths(&scan_lines, start, 26_usize);
+        let [path_a, path_b]: [Vec<PressureReleaseState>; 2_usize] =
+            Self::get_two_stateful_paths(&self.scan_lines, self.start, 26_usize);
 
-                        println!(
-                            "path_a.first() == {:#?}\n\
-                            path_b.first() == {:#?}\n\
-                            path_a.first().cloned().unwrap_or_default().pressure_released + \n\
-                            path_b.first().cloned().unwrap_or_default().pressure_released = {}",
-                            path_a.first(),
-                            path_b.first(),
-                            path_a
-                                .first()
-                                .cloned()
-                                .unwrap_or_default()
-                                .pressure_released
-                                + path_b
-                                    .first()
-                                    .cloned()
-                                    .unwrap_or_default()
-                                    .pressure_released
-                        );
-
-                        // let mut bi_actor_explorer: BiActorExplorer =
-                        //     BiActorExplorer::new(&scan_lines, &useful_trips);
-
-                        // let optimal_timeline: OptimalTimeline =
-                        //     bi_actor_explorer.find_optimal_timeline(start, start, 26_usize, true);
-
-                        // println!("optimal_timeline: {optimal_timeline:#?}");
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                }
+        path_a
+            .first()
+            .map(Self::map_pressure_release_state_to_pressure_released)
+            .zip(
+                path_b
+                    .first()
+                    .map(Self::map_pressure_release_state_to_pressure_released),
+            )
+            .map(|(pressure_released_a, pressure_released_b)| {
+                pressure_released_a + pressure_released_b
             })
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+    }
+
+    fn map_pressure_release_state_to_pressure_released(
+        pressure_release_state: &question_1::PressureReleaseState,
+    ) -> i32 {
+        pressure_release_state.pressure_released
+    }
+
+    fn get_two_stateful_paths(
+        scan_lines: &ScanLines,
+        start: u32,
+        time: usize,
+    ) -> [Vec<question_1::PressureReleaseState>; 2_usize] {
+        use question_1::*;
+
+        let mut useful_trips: UsefulTrips = scan_lines.useful_trips().unwrap();
+        let mut explorer_1: PressureReleaseExplorer =
+            PressureReleaseExplorer::new(scan_lines, &useful_trips);
+
+        explorer_1.explore_time_steps(time);
+
+        let stateful_path_1: Vec<PressureReleaseState> = explorer_1.find_optimal_path(start, time);
+        let stateless_path_1: Vec<u32> =
+            PressureReleaseExplorer::get_stateless_path(start, &stateful_path_1);
+
+        useful_trips.trim(&stateless_path_1);
+
+        let mut explorer_2: PressureReleaseExplorer =
+            PressureReleaseExplorer::new(scan_lines, &useful_trips);
+
+        explorer_2.explore_time_steps(time);
+
+        let stateful_path_2: Vec<PressureReleaseState> = explorer_2.find_optimal_path(start, time);
+
+        [stateful_path_1, stateful_path_2]
+    }
+}
+
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.pressure_released_by_single_actor_within_30_min());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.pressure_released_by_two_actors_within_26_min());
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum SolutionError<'i> {
+    ParseScanLinesError(ParseScanLinesError<'i>),
+    UsefulTripsError(UsefulTripsError),
+    NoStartTag,
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = SolutionError<'i>;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        const AA_TAG: u16 = u16::from_ne_bytes([b'A', b'A']);
+
+        let scan_lines: ScanLines = input
+            .try_into()
+            .map_err(SolutionError::ParseScanLinesError)?;
+        let useful_trips: UsefulTrips = scan_lines
+            .useful_trips()
+            .map_err(SolutionError::UsefulTripsError)?;
+        let start: u32 = scan_lines
+            .lines
+            .iter()
+            .position(|scan_line| scan_line.tag == AA_TAG)
+            .ok_or(SolutionError::NoStartTag)? as u32;
+
+        Ok(Self {
+            scan_lines,
+            useful_trips,
+            start,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use {super::*, std::collections::HashMap};
+    use {
+        super::*,
+        std::{collections::HashMap, sync::OnceLock},
+    };
 
     const SCAN_LINES_STR: &str = concat!(
         "Valve AA has flow rate=0; tunnels lead to valves DD, II, BB\n",
@@ -1730,21 +1753,194 @@ mod tests {
     const JJ: u16 = u16::from_ne_bytes([b'J', b'J']);
     const AA_INDEX: u32 = 0_u32;
 
-    lazy_static! {
-        static ref SCAN_LINES: ScanLines = example_scan_lines();
-        static ref USEFUL_TRIPS: UsefulTrips = example_useful_trips();
-        static ref TAG_TO_INDEX_AND_MASK: HashMap<u16, (u32, u64)> =
-            example_tag_to_index_and_mask();
+    fn scan_lines() -> &'static ScanLines {
+        static ONCE_LOCK: OnceLock<ScanLines> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            macro_rules! scan_lines {
+                [ $( $tag:expr , $flow_rate:expr => $( $neighbor:expr ),* ;)* ] => {
+                    ScanLines::new(vec![
+                        $( ScanLine::new($tag, $flow_rate, [ $( $neighbor ),* ]).unwrap(), )*
+                    ])
+                };
+            }
+
+            scan_lines!(
+                AA, 0 => DD, II, BB;
+                BB, 13 => CC, AA;
+                CC, 2 => DD, BB;
+                DD, 20 => CC, AA, EE;
+                EE, 3 => FF, DD;
+                FF, 0 => EE, GG;
+                GG, 0 => FF, HH;
+                HH, 22 => GG;
+                II, 0 => AA, JJ;
+                JJ, 21 => II;
+            )
+        })
+    }
+
+    fn useful_trips() -> &'static UsefulTrips {
+        static ONCE_LOCK: OnceLock<UsefulTrips> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            let pack_tags = |tags: &[u16]| -> u64 {
+                let mut packed: u64 = 0_u64;
+
+                for tag in tags {
+                    packed |= tag_to_index_and_mask()[tag].1;
+                }
+
+                packed
+            };
+
+            macro_rules! useful_trips {
+                [ $( $present_dest_tags:expr => [ $( $verts_between_tags:expr => ($dest_tag:expr, $cost:expr) ,)* ] ,)* ] => {
+                    vec![ $(
+                        (
+                            pack_tags(&$present_dest_tags),
+
+                            vec![ $(
+                                UsefulTrip {
+                                    verts_between: pack_tags(&$verts_between_tags),
+                                    index: tag_to_index_and_mask()[&$dest_tag].0,
+                                    cost: $cost
+                                },
+                            )* ]
+                        ),
+                    )* ]
+                };
+            }
+
+            let vert_to_trips: Vec<(u64, Vec<UsefulTrip>)> = useful_trips![
+                // AA
+                [BB, CC, DD, EE, HH, JJ] => [
+                    [] => (BB, 2),
+                    [BB] => (CC, 3),
+                    [] => (DD, 2),
+                    [DD] => (EE, 3),
+                    [DD, EE, FF, GG] => (HH, 6),
+                    [II] => (JJ, 3),
+                ],
+                // BB
+                [CC, DD, EE, HH, JJ] => [
+                    [] => (CC, 2),
+                    [AA] => (DD, 3),
+                    [AA, DD] => (EE, 4),
+                    [AA, DD, EE, FF, GG] => (HH, 7),
+                    [AA, II] => (JJ, 4),
+                ],
+                // CC
+                [BB, DD, EE, HH, JJ] => [
+                    [] => (BB, 2),
+                    [] => (DD, 2),
+                    [DD] => (EE, 3),
+                    [DD, EE, FF, GG] => (HH, 6),
+                    [BB, AA, II] => (JJ, 5),
+                ],
+                // DD
+                [BB, CC, EE, HH, JJ] => [
+                    [AA] => (BB, 3),
+                    [] => (CC, 2),
+                    [] => (EE, 2),
+                    [EE, FF, GG] => (HH, 5),
+                    [AA, II] => (JJ, 4),
+                ],
+                // EE
+                [BB, CC, DD, HH, JJ] => [
+                    [DD, AA] => (BB, 4),
+                    [DD] => (CC, 3),
+                    [] => (DD, 2),
+                    [FF, GG] => (HH, 4),
+                    [DD, AA, II] => (JJ, 5),
+                ],
+                // FF
+                [BB, CC, DD, EE, HH, JJ] => [
+                    [EE, DD, AA] => (BB, 5),
+                    [EE, DD] => (CC, 4),
+                    [EE] => (DD, 3),
+                    [] => (EE, 2),
+                    [GG] => (HH, 3),
+                    [EE, DD, AA, II] => (JJ, 6),
+                ],
+                // GG
+                [BB, CC, DD, EE, HH, JJ] => [
+                    [FF, EE, DD, AA] => (BB, 6),
+                    [FF, EE, DD] => (CC, 5),
+                    [FF, EE] => (DD, 4),
+                    [FF] => (EE, 3),
+                    [] => (HH, 2),
+                    [FF, EE, DD, AA, II] => (JJ, 7),
+                ],
+                // HH
+                [BB, CC, DD, EE, JJ] => [
+                    [GG, FF, EE, DD, AA] => (BB, 7),
+                    [GG, FF, EE, DD] => (CC, 6),
+                    [GG, FF, EE] => (DD, 5),
+                    [GG, FF] => (EE, 4),
+                    [GG, FF, EE, DD, AA, II] => (JJ, 8),
+                ],
+                // II
+                [BB, CC, DD, EE, HH, JJ] => [
+                    [AA] => (BB, 3),
+                    [AA, BB] => (CC, 4),
+                    [AA] => (DD, 3),
+                    [AA, DD] => (EE, 4),
+                    [AA, DD, EE, FF, GG] => (HH, 7),
+                    [] => (JJ, 2),
+                ],
+                // JJ
+                [BB, CC, DD, EE, HH] => [
+                    [II, AA] => (BB, 4),
+                    [II, AA, BB] => (CC, 5),
+                    [II, AA] => (DD, 4),
+                    [II, AA, DD] => (EE, 5),
+                    [II, AA, DD, EE, FF, GG] => (HH, 8),
+                ],
+            ];
+
+            let mut useful_trips: UsefulTrips = Default::default();
+            let mut all_dests: u64 = 0_u64;
+
+            for (start_dests, mut trips) in vert_to_trips {
+                let mut range: Range<usize> = useful_trips.trips.len()..useful_trips.trips.len();
+
+                useful_trips.trips.append(&mut trips);
+                range.end = useful_trips.trips.len();
+                useful_trips.headers_from_start.push(UsefulTripHeader {
+                    range,
+                    indices: start_dests,
+                });
+                all_dests |= start_dests;
+            }
+
+            useful_trips.dests = all_dests;
+            useful_trips.init_headers_to_dest();
+
+            useful_trips
+        })
+    }
+
+    fn tag_to_index_and_mask() -> &'static HashMap<u16, (u32, u64)> {
+        static ONCE_LOCK: OnceLock<HashMap<u16, (u32, u64)>> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            vec![AA, BB, CC, DD, EE, FF, GG, HH, II, JJ]
+                .into_iter()
+                .enumerate()
+                .map(|(index, tag)| (tag, (index as u32, 1_u64 << index as u32)))
+                .collect()
+        })
     }
 
     #[test]
     fn test_scan_lines_try_from_str() {
-        assert_eq!(SCAN_LINES_STR.try_into().as_ref(), Ok(&*SCAN_LINES));
+        assert_eq!(SCAN_LINES_STR.try_into().as_ref(), Ok(scan_lines()));
     }
 
     #[test]
     fn test_scan_lines_to_useful_trips() {
-        assert_eq!(SCAN_LINES.useful_trips().as_ref(), Ok(&*USEFUL_TRIPS));
+        assert_eq!(scan_lines().useful_trips().as_ref(), Ok(useful_trips()));
     }
 
     #[test]
@@ -1752,7 +1948,7 @@ mod tests {
         use question_1::*;
 
         let mut pressure_release_explorer: PressureReleaseExplorer =
-            PressureReleaseExplorer::new(&*SCAN_LINES, &*USEFUL_TRIPS);
+            PressureReleaseExplorer::new(scan_lines(), useful_trips());
 
         pressure_release_explorer.explore_time_steps(30_usize);
 
@@ -1767,24 +1963,8 @@ mod tests {
             path,
             [AA, DD, BB, JJ, HH, EE, CC]
                 .iter()
-                .map(|tag| TAG_TO_INDEX_AND_MASK[tag].0)
+                .map(|tag| tag_to_index_and_mask()[tag].0)
                 .collect::<Vec<u32>>()
-        );
-    }
-
-    #[test]
-    fn test_with_elephant() {
-        use question_1::*;
-
-        let [stateful_path_1, stateful_path_2]: [Vec<PressureReleaseState>; 2_usize] =
-            get_two_stateful_paths(&*SCAN_LINES, AA_INDEX, 26_usize);
-
-        assert_eq!(
-            stateful_path_1
-                .first()
-                .zip(stateful_path_2.first())
-                .map(|(prs_1, prs_2)| prs_1.pressure_released + prs_2.pressure_released),
-            Some(1707_i32)
         );
     }
 
@@ -1793,179 +1973,11 @@ mod tests {
         use question_2_attempt_1::*;
 
         let mut bi_actor_explorer: BiActorExplorer =
-            BiActorExplorer::new(&*SCAN_LINES, &*USEFUL_TRIPS);
+            BiActorExplorer::new(scan_lines(), useful_trips());
 
         let optimal_timeline: OptimalTimeline =
-            bi_actor_explorer.find_optimal_timeline(AA_INDEX, AA_INDEX, 26_usize, true);
+            bi_actor_explorer.find_optimal_timeline(AA_INDEX, AA_INDEX, 26_usize, false);
 
-        println!("optimal_timeline: {optimal_timeline:#?}");
-    }
-
-    fn example_scan_lines() -> ScanLines {
-        macro_rules! scan_lines {
-            [ $( $tag:expr , $flow_rate:expr => $( $neighbor:expr ),* ;)* ] => {
-                ScanLines::new(vec![
-                    $( ScanLine::new($tag, $flow_rate, [ $( $neighbor ),* ]).unwrap(), )*
-                ])
-            };
-        }
-
-        scan_lines!(
-            AA, 0 => DD, II, BB;
-            BB, 13 => CC, AA;
-            CC, 2 => DD, BB;
-            DD, 20 => CC, AA, EE;
-            EE, 3 => FF, DD;
-            FF, 0 => EE, GG;
-            GG, 0 => FF, HH;
-            HH, 22 => GG;
-            II, 0 => AA, JJ;
-            JJ, 21 => II;
-        )
-    }
-
-    fn example_useful_trips() -> UsefulTrips {
-        let pack_tags = |tags: &[u16]| -> u64 {
-            let mut packed: u64 = 0_u64;
-
-            for tag in tags {
-                packed |= TAG_TO_INDEX_AND_MASK[tag].1;
-            }
-
-            packed
-        };
-
-        macro_rules! useful_trips {
-            [ $( $present_dest_tags:expr => [ $( $verts_between_tags:expr => ($dest_tag:expr, $cost:expr) ,)* ] ,)* ] => {
-                vec![ $(
-                    (
-                        pack_tags(&$present_dest_tags),
-
-                        vec![ $(
-                            UsefulTrip {
-                                verts_between: pack_tags(&$verts_between_tags),
-                                index: TAG_TO_INDEX_AND_MASK[&$dest_tag].0,
-                                cost: $cost
-                            },
-                        )* ]
-                    ),
-                )* ]
-            };
-        }
-
-        let vert_to_trips: Vec<(u64, Vec<UsefulTrip>)> = useful_trips![
-            // AA
-            [BB, CC, DD, EE, HH, JJ] => [
-                [] => (BB, 2),
-                [BB] => (CC, 3),
-                [] => (DD, 2),
-                [DD] => (EE, 3),
-                [DD, EE, FF, GG] => (HH, 6),
-                [II] => (JJ, 3),
-            ],
-            // BB
-            [CC, DD, EE, HH, JJ] => [
-                [] => (CC, 2),
-                [AA] => (DD, 3),
-                [AA, DD] => (EE, 4),
-                [AA, DD, EE, FF, GG] => (HH, 7),
-                [AA, II] => (JJ, 4),
-            ],
-            // CC
-            [BB, DD, EE, HH, JJ] => [
-                [] => (BB, 2),
-                [] => (DD, 2),
-                [DD] => (EE, 3),
-                [DD, EE, FF, GG] => (HH, 6),
-                [BB, AA, II] => (JJ, 5),
-            ],
-            // DD
-            [BB, CC, EE, HH, JJ] => [
-                [AA] => (BB, 3),
-                [] => (CC, 2),
-                [] => (EE, 2),
-                [EE, FF, GG] => (HH, 5),
-                [AA, II] => (JJ, 4),
-            ],
-            // EE
-            [BB, CC, DD, HH, JJ] => [
-                [DD, AA] => (BB, 4),
-                [DD] => (CC, 3),
-                [] => (DD, 2),
-                [FF, GG] => (HH, 4),
-                [DD, AA, II] => (JJ, 5),
-            ],
-            // FF
-            [BB, CC, DD, EE, HH, JJ] => [
-                [EE, DD, AA] => (BB, 5),
-                [EE, DD] => (CC, 4),
-                [EE] => (DD, 3),
-                [] => (EE, 2),
-                [GG] => (HH, 3),
-                [EE, DD, AA, II] => (JJ, 6),
-            ],
-            // GG
-            [BB, CC, DD, EE, HH, JJ] => [
-                [FF, EE, DD, AA] => (BB, 6),
-                [FF, EE, DD] => (CC, 5),
-                [FF, EE] => (DD, 4),
-                [FF] => (EE, 3),
-                [] => (HH, 2),
-                [FF, EE, DD, AA, II] => (JJ, 7),
-            ],
-            // HH
-            [BB, CC, DD, EE, JJ] => [
-                [GG, FF, EE, DD, AA] => (BB, 7),
-                [GG, FF, EE, DD] => (CC, 6),
-                [GG, FF, EE] => (DD, 5),
-                [GG, FF] => (EE, 4),
-                [GG, FF, EE, DD, AA, II] => (JJ, 8),
-            ],
-            // II
-            [BB, CC, DD, EE, HH, JJ] => [
-                [AA] => (BB, 3),
-                [AA, BB] => (CC, 4),
-                [AA] => (DD, 3),
-                [AA, DD] => (EE, 4),
-                [AA, DD, EE, FF, GG] => (HH, 7),
-                [] => (JJ, 2),
-            ],
-            // JJ
-            [BB, CC, DD, EE, HH] => [
-                [II, AA] => (BB, 4),
-                [II, AA, BB] => (CC, 5),
-                [II, AA] => (DD, 4),
-                [II, AA, DD] => (EE, 5),
-                [II, AA, DD, EE, FF, GG] => (HH, 8),
-            ],
-        ];
-
-        let mut useful_trips: UsefulTrips = Default::default();
-        let mut all_dests: u64 = 0_u64;
-
-        for (start_dests, mut trips) in vert_to_trips {
-            let mut range: Range<usize> = useful_trips.trips.len()..useful_trips.trips.len();
-
-            useful_trips.trips.append(&mut trips);
-            range.end = useful_trips.trips.len();
-            useful_trips.headers_from_start.push(UsefulTripHeader {
-                range,
-                indices: start_dests,
-            });
-            all_dests |= start_dests;
-        }
-
-        useful_trips.dests = all_dests;
-        useful_trips.init_headers_to_dest();
-
-        useful_trips
-    }
-
-    fn example_tag_to_index_and_mask() -> HashMap<u16, (u32, u64)> {
-        vec![AA, BB, CC, DD, EE, FF, GG, HH, II, JJ]
-            .into_iter()
-            .enumerate()
-            .map(|(index, tag)| (tag, (index as u32, 1_u64 << index as u32)))
-            .collect()
+        assert_eq!(optimal_timeline.state.pressure_released, 1707_u16);
     }
 }

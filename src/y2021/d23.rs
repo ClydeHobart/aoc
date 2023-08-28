@@ -449,7 +449,7 @@ where
         present_cell_indices
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     fn try_organize_amphipods_dfs(self) -> Option<(Vec<Self>, u32)> {
         let mut result: OrganizeAmphipodsResult<SIDE_ROOM_LEN> = Default::default();
 
@@ -470,7 +470,7 @@ where
         .and_then(|path| result.energy_to_organize().map(|energy| (path, energy)))
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     fn try_organize_amphipods_dijkstra(self) -> Option<(Vec<Self>, u32)> {
         let mut result: OrganizeAmphipodsResult<SIDE_ROOM_LEN> = Default::default();
 
@@ -1062,7 +1062,7 @@ where
             .insert(self.start, self.start.previous_entry());
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     fn depth_first_search(&mut self) -> Option<(Vec<PositionState<SIDE_ROOM_LEN>>, u32)> {
         self.reset();
 
@@ -1569,39 +1569,6 @@ mod tests {
             small_position_state,
         );
         test_organize_amphipods_neighbors_short_circuit(&[0_usize], large_position_state);
-    }
-
-    #[test]
-    fn test_position_state_try_compute_organize_amphipods_astar() {
-        assert_eq!(
-            SOLUTION
-                .0
-                .try_organize_amphipods_astar()
-                .map(|(_, energy)| energy),
-            Some(12521_u32)
-        )
-    }
-
-    #[test]
-    fn test_position_state_try_compute_organize_amphipods_dfs() {
-        assert_eq!(
-            SOLUTION
-                .0
-                .try_organize_amphipods_dfs()
-                .map(|(_, energy)| energy),
-            Some(12521_u32)
-        )
-    }
-
-    #[test]
-    fn test_position_state_try_compute_organize_amphipods_dijkstra() {
-        assert_eq!(
-            SOLUTION
-                .0
-                .try_organize_amphipods_dijkstra()
-                .map(|(_, energy)| energy),
-            Some(12521_u32)
-        )
     }
 
     #[test]

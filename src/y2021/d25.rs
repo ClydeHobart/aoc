@@ -109,9 +109,7 @@ impl RunQuestions for Solution {
         }
     }
 
-    fn q2_internal(&mut self, _args: &QuestionArgs) {
-        todo!();
-    }
+    fn q2_internal(&mut self, _args: &QuestionArgs) {}
 }
 
 impl<'i> TryFrom<&'i str> for Solution {
