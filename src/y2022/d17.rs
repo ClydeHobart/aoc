@@ -1,20 +1,12 @@
 use {
-    aoc::*,
+    crate::*,
     num::integer::lcm,
     std::{collections::VecDeque, mem::transmute},
     strum::EnumCount,
 };
 
 #[cfg(test)]
-use std::{iter::Rev, ops::Range, slice::IterMut};
-
-#[cfg(test)]
-#[macro_use]
-extern crate static_assertions;
-
-#[cfg(test)]
-#[macro_use]
-extern crate lazy_static;
+use {std::{iter::Rev, ops::Range, slice::IterMut}, static_assertions::const_assert};
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Default, EnumCount)]
@@ -118,7 +110,7 @@ enum JetPushDirection {
 }
 
 #[derive(Debug, PartialEq)]
-struct InvalidJetPushDirectionChar(char);
+pub struct InvalidJetPushDirectionChar(char);
 
 impl TryFrom<char> for JetPushDirection {
     type Error = InvalidJetPushDirectionChar;
@@ -516,46 +508,51 @@ impl<'j> FallingRockSimulation<'j> {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day17.txt");
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(JetPattern);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                match JetPattern::try_from(input) {
-                    Ok(jet_pattern) => {
-                        let mut falling_rock_simulation: FallingRockSimulation =
-                            FallingRockSimulation::new(&jet_pattern);
+impl Solution {
+    fn resting_layer_count_when_n_rocks_rest(&self, n: usize) -> usize {
+        let mut falling_rock_simulation: FallingRockSimulation = FallingRockSimulation::new(&self.0);
 
-                        falling_rock_simulation.run_until_n_rocks_rest(2022_usize);
+        falling_rock_simulation
+        .run_until_n_rocks_rest(n);
 
-                        dbg!(falling_rock_simulation.resting_layer_count());
-                        dbg!(FallingRockSimulation::resting_layer_count_at_large_n(
-                            &jet_pattern,
-                            1_000_000_000_000_usize,
-                            true
-                        ));
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                }
-            })
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+        falling_rock_simulation.resting_layer_count()
+    }
+
+    fn resting_layer_count_when_large_n_rocks_rest(&self, n: usize, status_updates: bool) -> Option<usize> {
+        FallingRockSimulation::resting_layer_count_at_large_n(
+            &self.0,
+            n,
+            status_updates
+        )
+    }
+}
+
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.resting_layer_count_when_n_rocks_rest(2022_usize));
+    }
+
+    fn q2_internal(&mut self, args: &QuestionArgs) {
+        dbg!(self.resting_layer_count_when_large_n_rocks_rest(
+            1_000_000_000_000_usize,
+            args.verbose));
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = InvalidJetPushDirectionChar;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(input.try_into()?))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const JET_PATTERN_STR: &str = ">>><<><>><<<>><>>><<<>>><<<><<<>><>><<>>";
     const FALLING_ROCK_SIMULATION_STRING_0_ROCKS: &str = concat!(
@@ -744,19 +741,26 @@ mod tests {
         "+-------+",
     );
 
-    lazy_static! {
-        static ref JET_PATTERN: JetPattern = example_jet_pattern();
+    fn jet_pattern() -> &'static JetPattern {
+        use {JetPushDirection::Left as L, JetPushDirection::Right as R};
+
+        static ONCE_LOCK: OnceLock<JetPattern> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| JetPattern(vec![
+            R, R, R, L, L, R, L, R, R, L, L, L, R, R, L, R, R, R, L, L, L, R, R, R, L, L, L, R, L,
+            L, L, R, R, L, R, R, L, L, R, R,
+        ]))
     }
 
     #[test]
     fn test_jet_pattern_try_from_str() {
-        assert_eq!(JET_PATTERN_STR.try_into().as_ref(), Ok(&*JET_PATTERN));
+        assert_eq!(JET_PATTERN_STR.try_into().as_ref(), Ok(jet_pattern()));
     }
 
     #[test]
     fn test_falling_rock_simulation() {
         let mut falling_rock_simulation: FallingRockSimulation =
-            FallingRockSimulation::new(&*JET_PATTERN);
+            FallingRockSimulation::new(jet_pattern());
 
         assert_eq!(
             falling_rock_simulation.string(),
@@ -822,21 +826,11 @@ mod tests {
     fn test_falling_rock_simulation_one_trillion_rocks() {
         assert_eq!(
             FallingRockSimulation::resting_layer_count_at_large_n(
-                &*JET_PATTERN,
+                jet_pattern(),
                 1_000_000_000_000_usize,
                 true
             ),
             Some(1_514_285_714_288_usize)
         );
-    }
-
-    fn example_jet_pattern() -> JetPattern {
-        use JetPushDirection::Left as L;
-        use JetPushDirection::Right as R;
-
-        JetPattern(vec![
-            R, R, R, L, L, R, L, R, R, L, L, L, R, R, L, R, R, R, L, L, L, R, R, R, L, L, L, R, L,
-            L, L, R, R, L, R, R, L, L, R, R,
-        ])
     }
 }
