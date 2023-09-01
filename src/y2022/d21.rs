@@ -1,5 +1,5 @@
 use {
-    aoc::*,
+    crate::*,
     std::{
         collections::HashMap,
         fmt::{Debug, Formatter, Result as FmtResult},
@@ -10,13 +10,9 @@ use {
     },
 };
 
-#[cfg(test)]
-#[macro_use]
-extern crate lazy_static;
-
 /// A monkey's name, which is expected to be 4 ASCII lowercase characters in string form
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
-struct Tag(u32);
+pub struct Tag(u32);
 
 macro_rules! tag {
     ($utf8_bytes:literal) => {
@@ -50,7 +46,7 @@ impl Debug for Tag {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseTagError<'s> {
+pub enum ParseTagError<'s> {
     InvalidLength(&'s str),
     IsNotAsciiLowercase(char),
 }
@@ -80,7 +76,7 @@ impl<'s> TryFrom<&'s str> for Tag {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Operation {
+pub enum Operation {
     Add,
     Subtract,
     Multiply,
@@ -88,7 +84,7 @@ enum Operation {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseOperationError<'s> {
+pub enum ParseOperationError<'s> {
     InvalidPattern(&'s str),
 }
 
@@ -111,7 +107,7 @@ impl<'s> TryFrom<&'s str> for Operation {
 type ExpressionNumericType = i64;
 
 #[derive(Clone, Debug, PartialEq)]
-enum Expression {
+pub enum Expression {
     Constant(ExpressionNumericType),
     Operation {
         operand_a: Tag,
@@ -253,7 +249,7 @@ impl Expression {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseExpressionError<'s> {
+pub enum ParseExpressionError<'s> {
     NoInitialChar,
     FailedToParseConstant(ParseIntError),
     NoOperationOperandAToken,
@@ -416,7 +412,7 @@ impl Expressions {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseExpressionsError<'s> {
+pub enum ParseExpressionsError<'s> {
     NoMonkeyTagToken,
     FailedToParseMonkeyTag(ParseTagError<'s>),
     NoExpressionToken,
@@ -481,37 +477,30 @@ impl<'s> TryFrom<&'s str> for Expressions {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day21.txt");
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(Expressions);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                match Expressions::try_from(input) {
-                    Ok(expressions) => {
-                        dbg!(expressions.value_for_tag(Tag::ROOT));
-                        dbg!(expressions.compute_constrained_value(Tag::ROOT, Tag::HUMN)).ok();
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                }
-            })
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.0.value_for_tag(Tag::ROOT));
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.0.compute_constrained_value(Tag::ROOT, Tag::HUMN)).ok();
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = ParseExpressionsError<'i>;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(input.try_into()?))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const EXPRESSIONS_STR: &str = concat!(
         "root: pppw + sjmn\n",
@@ -546,13 +535,56 @@ mod tests {
     const ROOT_VALUE: ExpressionNumericType = 152;
     const HUMN_VALUE: ExpressionNumericType = 301;
 
-    lazy_static! {
-        static ref EXPRESSIONS: Expressions = expressions();
+    fn expressions() -> &'static Expressions {
+        static ONCE_LOCK: OnceLock<Expressions> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            use Expression::{Constant as C, Operation as O};
+
+            macro_rules! expr {
+                ($op_a:literal, $op:ident, $op_b:literal) => {
+                    O {
+                        operand_a: tag!($op_a),
+                        operand_b: tag!($op_b),
+                        operation: Operation::$op,
+                    }
+                };
+                ($constant:literal) => {
+                    C($constant)
+                };
+            }
+
+            macro_rules! expressions {
+            [ $( ( $monkey:literal: $( $token:tt ),+ ), )* ] => {
+                Expressions(vec![ $(
+                    (tag!($monkey), expr!( $( $token ),+ )),
+                )* ].into_iter().collect::<HashMap<Tag, Expression>>())
+            };
+        }
+
+            expressions![
+                (b"root": b"pppw", Add, b"sjmn"),
+                (b"dbpl": 5),
+                (b"cczh": b"sllz", Add, b"lgvd"),
+                (b"zczc": 2),
+                (b"ptdq": b"humn", Subtract, b"dvpt"),
+                (b"dvpt": 3),
+                (b"lfqf": 4),
+                (b"humn": 5),
+                (b"ljgn": 2),
+                (b"sjmn": b"drzm", Multiply, b"dbpl"),
+                (b"sllz": 4),
+                (b"pppw": b"cczh", Divide, b"lfqf"),
+                (b"lgvd": b"ljgn", Multiply, b"ptdq"),
+                (b"drzm": b"hmdt", Subtract, b"zczc"),
+                (b"hmdt": 32),
+            ]
+        })
     }
 
     #[test]
     fn test_expressions_try_from_str() {
-        assert_eq!(EXPRESSIONS_STR.try_into().as_ref(), Ok(&*EXPRESSIONS))
+        assert_eq!(EXPRESSIONS_STR.try_into().as_ref(), Ok(expressions()))
     }
 
     #[test]
@@ -560,7 +592,7 @@ mod tests {
         let mut stack: Vec<Tag> = Vec::new();
         let mut values: HashMap<Tag, ExpressionNumericType> = HashMap::new();
 
-        EXPRESSIONS.values_for_tag(Tag::ROOT, &mut stack, &mut values);
+        expressions().values_for_tag(Tag::ROOT, &mut stack, &mut values);
 
         assert_eq!(values.get(&HMDT), Some(&DRZM_VALUE));
         assert_eq!(values.get(&ZCZC), Some(&HMDT_VALUE));
@@ -572,62 +604,19 @@ mod tests {
 
     #[test]
     fn test_expressions_value_for_tag() {
-        assert_eq!(EXPRESSIONS.value_for_tag(HMDT), DRZM_VALUE);
-        assert_eq!(EXPRESSIONS.value_for_tag(ZCZC), HMDT_VALUE);
-        assert_eq!(EXPRESSIONS.value_for_tag(DRZM), ZCZC_VALUE);
-        assert_eq!(EXPRESSIONS.value_for_tag(DBPL), SJMN_VALUE);
-        assert_eq!(EXPRESSIONS.value_for_tag(SJMN), DBPL_VALUE);
-        assert_eq!(EXPRESSIONS.value_for_tag(ROOT), ROOT_VALUE);
+        assert_eq!(expressions().value_for_tag(HMDT), DRZM_VALUE);
+        assert_eq!(expressions().value_for_tag(ZCZC), HMDT_VALUE);
+        assert_eq!(expressions().value_for_tag(DRZM), ZCZC_VALUE);
+        assert_eq!(expressions().value_for_tag(DBPL), SJMN_VALUE);
+        assert_eq!(expressions().value_for_tag(SJMN), DBPL_VALUE);
+        assert_eq!(expressions().value_for_tag(ROOT), ROOT_VALUE);
     }
 
     #[test]
     fn test_expressions_compute_variable_value() {
         assert_eq!(
-            EXPRESSIONS.compute_constrained_value(ROOT, HUMN),
+            expressions().compute_constrained_value(ROOT, HUMN),
             Ok(HUMN_VALUE)
         );
-    }
-
-    fn expressions() -> Expressions {
-        use Expression::{Constant as C, Operation as O};
-
-        macro_rules! expr {
-            ($op_a:literal, $op:ident, $op_b:literal) => {
-                O {
-                    operand_a: tag!($op_a),
-                    operand_b: tag!($op_b),
-                    operation: Operation::$op,
-                }
-            };
-            ($constant:literal) => {
-                C($constant)
-            };
-        }
-
-        macro_rules! expressions {
-            [ $( ( $monkey:literal: $( $token:tt ),+ ), )* ] => {
-                Expressions(vec![ $(
-                    (tag!($monkey), expr!( $( $token ),+ )),
-                )* ].into_iter().collect::<HashMap<Tag, Expression>>())
-            };
-        }
-
-        expressions![
-            (b"root": b"pppw", Add, b"sjmn"),
-            (b"dbpl": 5),
-            (b"cczh": b"sllz", Add, b"lgvd"),
-            (b"zczc": 2),
-            (b"ptdq": b"humn", Subtract, b"dvpt"),
-            (b"dvpt": 3),
-            (b"lfqf": 4),
-            (b"humn": 5),
-            (b"ljgn": 2),
-            (b"sjmn": b"drzm", Multiply, b"dbpl"),
-            (b"sllz": 4),
-            (b"pppw": b"cczh", Divide, b"lfqf"),
-            (b"lgvd": b"ljgn", Multiply, b"ptdq"),
-            (b"drzm": b"hmdt", Subtract, b"zczc"),
-            (b"hmdt": 32),
-        ]
     }
 }
