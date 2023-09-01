@@ -1,6 +1,6 @@
 use {
     self::MaterialType::*,
-    aoc::*,
+    crate::*,
     rayon::prelude::*,
     std::{
         collections::HashMap,
@@ -12,10 +12,6 @@ use {
         time::Instant,
     },
 };
-
-#[cfg(test)]
-#[macro_use]
-extern crate lazy_static;
 
 /// # Notes
 ///
@@ -186,7 +182,7 @@ struct Blueprint {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseCostsError<'s> {
+pub enum ParseCostsError<'s> {
     NoEachToken,
     InvalidEachToken(&'s str),
     NoMaterialToken,
@@ -285,7 +281,7 @@ impl Blueprint {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseBlueprintError<'s> {
+pub enum ParseBlueprintError<'s> {
     NoBlueprintToken,
     InvalidBlueprintToken(&'s str),
     NoIdToken,
@@ -447,7 +443,7 @@ impl Blueprints {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseBlueprintsError<'s> {
+pub enum ParseBlueprintsError<'s> {
     FailedToParseBlueprint(ParseBlueprintError<'s>),
     InvalidBlueprintId { expected: u16, actual: u16 },
 }
@@ -768,66 +764,69 @@ impl Explorer {
     }
 }
 
-const QUESTION_1_MAX_TIME: usize = 24_usize;
-const QUESTION_2_MAX_TIME: usize = 32_usize;
-const QUESTION_1_MAX_BLUEPRINTS: usize = usize::MAX;
-const QUESTION_2_MAX_BLUEPRINTS: usize = 3_usize;
-const ROOT: State = State {
-    robots: Counts {
-        ore: 1_u16,
-        clay: 0_u16,
-        obsidian: 0_u16,
-        geode: 0_u16,
-    },
-    materials: Counts {
-        ore: 0_u16,
-        clay: 0_u16,
-        obsidian: 0_u16,
-        geode: 0_u16,
-    },
-};
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(Blueprints);
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day19.txt");
+impl Solution {
+    const QUESTION_1_MAX_TIME: usize = 24_usize;
+    const QUESTION_2_MAX_TIME: usize = 32_usize;
+    const QUESTION_1_MAX_BLUEPRINTS: usize = usize::MAX;
+    const QUESTION_2_MAX_BLUEPRINTS: usize = 3_usize;
+    const ROOT: State = State {
+        robots: Counts {
+            ore: 1_u16,
+            clay: 0_u16,
+            obsidian: 0_u16,
+            geode: 0_u16,
+        },
+        materials: Counts {
+            ore: 0_u16,
+            clay: 0_u16,
+            obsidian: 0_u16,
+            geode: 0_u16,
+        },
+    };
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                match Blueprints::try_from(input) {
-                    Ok(blueprints) => {
-                        dbg!(blueprints.quality_level_sum(
-                            QUESTION_1_MAX_TIME,
-                            QUESTION_1_MAX_BLUEPRINTS,
-                            ROOT,
-                            args.verbose
-                        ));
-                        dbg!(blueprints.max_geodes_product(
-                            QUESTION_2_MAX_TIME,
-                            QUESTION_2_MAX_BLUEPRINTS,
-                            ROOT,
-                            args.verbose
-                        ));
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                }
-            })
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+    fn quality_level_sum(&self, status_updates: bool) -> usize {
+        self.0.quality_level_sum(
+            Self::QUESTION_1_MAX_TIME,
+            Self::QUESTION_1_MAX_BLUEPRINTS,
+            Self::ROOT,
+            status_updates,
+        )
+    }
+
+    fn max_geodes_product(&self, status_updates: bool) -> usize {
+        self.0.max_geodes_product(
+            Self::QUESTION_2_MAX_TIME,
+            Self::QUESTION_2_MAX_BLUEPRINTS,
+            Self::ROOT,
+            status_updates,
+        )
+    }
+}
+
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, args: &QuestionArgs) {
+        dbg!(self.quality_level_sum(args.verbose));
+    }
+
+    fn q2_internal(&mut self, args: &QuestionArgs) {
+        dbg!(self.max_geodes_product(args.verbose));
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = ParseBlueprintsError<'i>;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(input.try_into()?))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const BLUEPRINTS_STR: &str = concat!(
         "Blueprint 1: \
@@ -842,19 +841,56 @@ mod tests {
             Each geode robot costs 3 ore and 12 obsidian."
     );
 
-    lazy_static! {
-        static ref BLUEPRINTS: Blueprints = blueprints();
+    fn blueprints() -> &'static Blueprints {
+        static ONCE_LOCK: OnceLock<Blueprints> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            Blueprints(vec![
+                Blueprint {
+                    id: 1_u16,
+                    ore: OreRobotCosts { ore: 4_u16 },
+                    clay: ClayRobotCosts { ore: 2_u16 },
+                    obsidian: ObsidianRobotCosts {
+                        ore: 3_u16,
+                        clay: 14_u16,
+                    },
+                    geode: GeodeRobotCosts {
+                        ore: 2_u16,
+                        obsidian: 7_u16,
+                    },
+                    max_ore: 3_u16,
+                },
+                Blueprint {
+                    id: 2_u16,
+                    ore: OreRobotCosts { ore: 2_u16 },
+                    clay: ClayRobotCosts { ore: 3_u16 },
+                    obsidian: ObsidianRobotCosts {
+                        ore: 3_u16,
+                        clay: 8_u16,
+                    },
+                    geode: GeodeRobotCosts {
+                        ore: 3_u16,
+                        obsidian: 12_u16,
+                    },
+                    max_ore: 3_u16,
+                },
+            ])
+        })
     }
 
     #[test]
     fn test_blueprints_try_from_str() {
-        assert_eq!(BLUEPRINTS_STR.try_into().as_ref(), Ok(&*BLUEPRINTS));
+        assert_eq!(BLUEPRINTS_STR.try_into().as_ref(), Ok(blueprints()));
     }
 
     #[test]
     fn test_question_1() {
-        let end_results: Vec<EndResult> =
-            BLUEPRINTS.end_results(QUESTION_1_MAX_TIME, QUESTION_1_MAX_BLUEPRINTS, ROOT, true);
+        let end_results: Vec<EndResult> = blueprints().end_results(
+            Solution::QUESTION_1_MAX_TIME,
+            Solution::QUESTION_1_MAX_BLUEPRINTS,
+            Solution::ROOT,
+            true,
+        );
 
         assert_eq!(
             end_results
@@ -864,15 +900,19 @@ mod tests {
             vec![9_u16, 12_u16]
         );
         assert_eq!(
-            BLUEPRINTS.quality_level_sum_for_end_results(&end_results),
+            blueprints().quality_level_sum_for_end_results(&end_results),
             33_usize
         );
     }
 
     #[test]
     fn test_question_2() {
-        let end_results: Vec<EndResult> =
-            BLUEPRINTS.end_results(QUESTION_2_MAX_TIME, QUESTION_2_MAX_BLUEPRINTS, ROOT, true);
+        let end_results: Vec<EndResult> = blueprints().end_results(
+            Solution::QUESTION_2_MAX_TIME,
+            Solution::QUESTION_2_MAX_BLUEPRINTS,
+            Solution::ROOT,
+            true,
+        );
 
         assert_eq!(
             end_results
@@ -885,38 +925,5 @@ mod tests {
             Blueprints::max_geodes_product_for_end_results(&end_results),
             3472_usize,
         )
-    }
-
-    fn blueprints() -> Blueprints {
-        Blueprints(vec![
-            Blueprint {
-                id: 1_u16,
-                ore: OreRobotCosts { ore: 4_u16 },
-                clay: ClayRobotCosts { ore: 2_u16 },
-                obsidian: ObsidianRobotCosts {
-                    ore: 3_u16,
-                    clay: 14_u16,
-                },
-                geode: GeodeRobotCosts {
-                    ore: 2_u16,
-                    obsidian: 7_u16,
-                },
-                max_ore: 3_u16,
-            },
-            Blueprint {
-                id: 2_u16,
-                ore: OreRobotCosts { ore: 2_u16 },
-                clay: ClayRobotCosts { ore: 3_u16 },
-                obsidian: ObsidianRobotCosts {
-                    ore: 3_u16,
-                    clay: 8_u16,
-                },
-                geode: GeodeRobotCosts {
-                    ore: 3_u16,
-                    obsidian: 12_u16,
-                },
-                max_ore: 3_u16,
-            },
-        ])
     }
 }
