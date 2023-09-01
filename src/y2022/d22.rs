@@ -1,6 +1,7 @@
 use {
-    aoc::*,
+    crate::*,
     glam::IVec2,
+    static_assertions::const_assert_eq,
     std::{
         mem::{size_of, transmute},
         num::ParseIntError,
@@ -9,13 +10,6 @@ use {
     },
     strum::EnumCount,
 };
-
-#[cfg(test)]
-#[macro_use]
-extern crate lazy_static;
-
-#[macro_use]
-extern crate static_assertions;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[repr(u8)]
@@ -33,7 +27,7 @@ impl MapCell {
 }
 
 #[derive(Debug, PartialEq)]
-struct InvalidMapCellByte(u8);
+pub struct InvalidMapCellByte(u8);
 
 impl TryFrom<u8> for MapCell {
     type Error = InvalidMapCellByte;
@@ -48,6 +42,7 @@ impl TryFrom<u8> for MapCell {
     }
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Clone)]
 struct Map(Grid2D<MapCell>);
 
@@ -94,6 +89,7 @@ impl TryFrom<&str> for Map {
     }
 }
 
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Debug)]
 struct CubeNeighbor {
     to_pos: IVec2,
@@ -134,6 +130,7 @@ impl Default for CubeNeighbor {
     }
 }
 
+#[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Debug, Default)]
 struct Neighbors {
     flat: [u8; 4_usize],
@@ -198,18 +195,19 @@ impl GridVisitor for MapCellToNeighborsGridVisitor {
     }
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Clone)]
 struct NeighborsGrid(Grid2D<Neighbors>);
 
 #[derive(Debug, PartialEq)]
-enum ConstructNeighborsGridError {
+pub enum ConstructNeighborsGridError {
     NonVoidMapCellCountIsNotSixTimesASquare(i32),
     DimensionsAreNotMultiplesOfCubeSideLen((IVec2, i32)),
     MapCellDoesNotFitCubeMap(IVec2),
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct NetCell {
+pub(crate) struct NetCell {
     is_not_void: bool,
     is_corner: bool,
 }
@@ -636,7 +634,7 @@ enum Instruction {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseInstructionError {
+pub enum ParseInstructionError {
     FailedToParseMove(ParseIntError),
     InvalidByte(u8),
 }
@@ -688,6 +686,7 @@ impl TryFrom<&str> for Instructions {
     }
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Clone)]
 struct TraceState {
     pos: IVec2,
@@ -707,6 +706,7 @@ impl TraceState {
     }
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Clone)]
 struct PasswordTracer {
     map: Map,
@@ -858,7 +858,7 @@ impl PasswordTracer {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParsePasswordTracerError {
+pub enum ParsePasswordTracerError {
     NoMapToken,
     FailedToParseMap(InvalidMapCellByte),
     NoInstructionsToken,
@@ -895,64 +895,58 @@ impl TryFrom<&str> for PasswordTracer {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day22.txt");
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(PasswordTracer);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(
-                input_file_path,
-                |input: &str| match PasswordTracer::try_from(input) {
-                    Ok(mut password_tracer) => {
-                        dbg!(password_tracer.run(false).final_password());
+impl Solution {
+    fn final_password_2d(&mut self) -> i32 {
+        self.0.run(false).final_password()
+    }
 
-                        let password_tracer_try_as_string: Option<Grid2DStringResult> =
-                            if args.verbose {
-                                Some(password_tracer.try_as_string())
-                            } else {
-                                None
-                            };
+    fn final_password_3d(&mut self) -> i32 {
+        self.0.run(true).final_password()
+    }
 
-                        dbg!(password_tracer.run(true).final_password());
+    fn try_as_string(&self) -> Grid2DStringResult {
+        self.0.try_as_string()
+    }
+}
 
-                        if args.verbose {
-                            println!(
-                                "password_tracer_try_as_string:\n\
-                                \n\
-                                {}\n\
-                                \n\
-                                password_tracer_try_as_string_cube:\n\
-                                \n\
-                                {}",
-                                password_tracer_try_as_string
-                                    .unwrap()
-                                    .unwrap_or_else(|err| format!("{err:#?}")),
-                                password_tracer
-                                    .try_as_string()
-                                    .unwrap_or_else(|err| format!("{err:#?}")),
-                            );
-                        }
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                },
-            )
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, args: &QuestionArgs) {
+        dbg!(self.final_password_2d());
+
+        if args.verbose {
+            println!(
+                "self.try_as_string():\n\n{}",
+                self.try_as_string().unwrap_or_else(|_| "[error]".into())
+            );
         }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+    }
+
+    fn q2_internal(&mut self, args: &QuestionArgs) {
+        dbg!(self.final_password_3d());
+
+        if args.verbose {
+            println!(
+                "self.try_as_string():\n\n{}",
+                self.try_as_string().unwrap_or_else(|_| "[error]".into())
+            );
+        }
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = ParsePasswordTracerError;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(input.try_into()?))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const MAP_STR: &str = concat!(
         "        ...#\n",
@@ -1028,9 +1022,34 @@ mod tests {
         "        ..v...#.\n",
     );
 
-    lazy_static! {
-        static ref INSTRUCTIONS: Instructions = instructions();
-        static ref PASSWORD_TRACER: PasswordTracer = password_tracer();
+    fn instructions() -> &'static Instructions {
+        static ONCE_LOCK: OnceLock<Instructions> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            use Instruction::*;
+
+            Instructions(vec![
+                Move(10_u8),
+                Turn { left: false },
+                Move(5_u8),
+                Turn { left: true },
+                Move(5_u8),
+                Turn { left: false },
+                Move(10_u8),
+                Turn { left: true },
+                Move(4_u8),
+                Turn { left: false },
+                Move(5_u8),
+                Turn { left: true },
+                Move(5_u8),
+            ])
+        })
+    }
+
+    fn password_tracer() -> &'static PasswordTracer {
+        static ONCE_LOCK: OnceLock<PasswordTracer> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| PasswordTracer::try_from(PASSWORD_TRACER_STR).unwrap())
     }
 
     #[test]
@@ -1045,13 +1064,13 @@ mod tests {
 
     #[test]
     fn test_instructions_try_from_str() {
-        assert_eq!(INSTRUCTIONS_STR.try_into().as_ref(), Ok(&*INSTRUCTIONS));
+        assert_eq!(INSTRUCTIONS_STR.try_into().as_ref(), Ok(instructions()));
     }
 
     #[test]
     fn test_password_tracer_run() {
         assert_eq!(
-            PASSWORD_TRACER.clone().run(false).try_as_string(),
+            password_tracer().clone().run(false).try_as_string(),
             Ok(PASSWORD_TRACER_STRING.into())
         );
     }
@@ -1059,7 +1078,7 @@ mod tests {
     #[test]
     fn test_password_tracer_final_password() {
         assert_eq!(
-            PASSWORD_TRACER.clone().run(false).final_password(),
+            password_tracer().clone().run(false).final_password(),
             6_032_i32
         );
     }
@@ -1067,7 +1086,7 @@ mod tests {
     #[test]
     fn test_password_tracer_run_cube() {
         assert_eq!(
-            PASSWORD_TRACER.clone().run(true).try_as_string(),
+            password_tracer().clone().run(true).try_as_string(),
             Ok(PASSWORD_TRACER_CUBE_STRING.into())
         );
     }
@@ -1075,7 +1094,7 @@ mod tests {
     #[test]
     fn test_password_tracer_final_password_cube() {
         assert_eq!(
-            PASSWORD_TRACER.clone().run(true).final_password(),
+            password_tracer().clone().run(true).final_password(),
             5_031_i32
         );
     }
@@ -1090,30 +1109,6 @@ mod tests {
                 .collect::<Vec<i32>>(),
             (0_i32..50_i32).collect::<Vec<i32>>()
         );
-    }
-
-    fn instructions() -> Instructions {
-        use Instruction::*;
-
-        Instructions(vec![
-            Move(10_u8),
-            Turn { left: false },
-            Move(5_u8),
-            Turn { left: true },
-            Move(5_u8),
-            Turn { left: false },
-            Move(10_u8),
-            Turn { left: true },
-            Move(4_u8),
-            Turn { left: false },
-            Move(5_u8),
-            Turn { left: true },
-            Move(5_u8),
-        ])
-    }
-
-    fn password_tracer() -> PasswordTracer {
-        PasswordTracer::try_from(PASSWORD_TRACER_STR).unwrap()
     }
 
     /// Tests related to cube nets
@@ -1207,13 +1202,15 @@ mod tests {
         const CUBE_NET_PERIMETER: usize = NeighborsGrid::CUBE_NET_PERIMETER;
         const CUBE_NET_COUNT: usize = 11_usize;
 
-        lazy_static! {
-            static ref CUBE_FACE_CORNER_GRIDS: Vec<Grid2D<NetCell>> = cube_face_corner_grids();
+        fn cube_face_corner_grids() -> &'static Vec<Grid2D<NetCell>> {
+            static ONCE_LOCK: OnceLock<Vec<Grid2D<NetCell>>> = OnceLock::new();
+
+            ONCE_LOCK.get_or_init(new_cube_face_corner_grids)
         }
 
         #[test]
         fn test_password_tracer_perimeter() {
-            for (index, (cube_face_corner_grid, expected_perimeter)) in CUBE_FACE_CORNER_GRIDS
+            for (index, (cube_face_corner_grid, expected_perimeter)) in cube_face_corner_grids()
                 .iter()
                 .zip(PERIMETERS.iter())
                 .enumerate()
@@ -1275,7 +1272,7 @@ mod tests {
                 };
             }
 
-            pub(crate) fn cube_face_corner_grids() -> Vec<Grid2D<NetCell>> {
+            pub(crate) fn new_cube_face_corner_grids() -> Vec<Grid2D<NetCell>> {
                 vec![
                     cube_face_corner_grid_0(),
                     cube_face_corner_grid_1(),
@@ -1493,6 +1490,7 @@ mod tests {
                 COINCIDENT_CORNERS_4,
             ];
 
+            #[allow(dead_code)]
             const COINCIDENT_CORNERS_: CoincidentCorners = [
                 0b00000000000001_u16,
                 0b00000000000010_u16,
