@@ -1,11 +1,7 @@
 use {
-    aoc::*,
+    crate::*,
     std::{num::ParseIntError, str::FromStr},
 };
-
-#[cfg(test)]
-#[macro_use]
-extern crate lazy_static;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct ListElement {
@@ -86,7 +82,7 @@ impl EncryptedFile {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseEncryptedFileError {
+pub enum ParseEncryptedFileError {
     FailedToParseNumber(ParseIntError),
     TooFewNumbers,
     TooManyNumbers,
@@ -148,55 +144,53 @@ impl TryFrom<&str> for EncryptedFile {
     }
 }
 
-const DELTA: usize = 1_000_usize;
-const DECRYPTION_KEY: i64 = 811_589_153_i64;
-const ROUNDS: usize = 10_usize;
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(EncryptedFile);
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day20.txt");
+impl Solution {
+    const DELTA: usize = 1_000_usize;
+    const DECRYPTION_KEY: i64 = 811_589_153_i64;
+    const ROUNDS: usize = 10_usize;
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(
-                input_file_path,
-                |input: &str| match EncryptedFile::try_from(input) {
-                    Ok(mut encrypted_file) => {
-                        dbg!(encrypted_file
-                            .clone()
-                            .mix(1_usize)
-                            .grove_coordinates_sum(DELTA));
-                        dbg!(encrypted_file
-                            .apply_decryption_key(DECRYPTION_KEY)
-                            .mix(ROUNDS)
-                            .grove_coordinates_sum(DELTA));
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                },
-            )
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+    fn grove_coordinates_sum(&self) -> i64 {
+        self.0
+            .clone()
+            .mix(1_usize)
+            .grove_coordinates_sum(Self::DELTA)
+    }
+
+    fn grove_coordinates_sum_after_decryption_key_application(&self) -> i64 {
+        self.0
+            .clone()
+            .apply_decryption_key(Self::DECRYPTION_KEY)
+            .mix(Self::ROUNDS)
+            .grove_coordinates_sum(Self::DELTA)
+    }
+}
+
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.grove_coordinates_sum());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.grove_coordinates_sum_after_decryption_key_application());
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = ParseEncryptedFileError;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(input.try_into()?))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const ENCRYPTED_FILE_STR: &str = "1\n2\n-3\n3\n-2\n0\n4";
-
-    lazy_static! {
-        static ref ENCRYPTED_FILE: EncryptedFile = encrypted_file();
-        static ref ENCRYPTED_FILE_MIXED: EncryptedFile = encrypted_file_mixed();
-    }
 
     macro_rules! list_elements {
         [ $( ($prev:literal <- $num:literal -> $next:literal), )* ] => { vec![ $(
@@ -208,35 +202,10 @@ mod tests {
         )* ] };
     }
 
-    #[test]
-    fn test_encrypted_file_try_from_str() {
-        assert_eq!(ENCRYPTED_FILE_STR.try_into().as_ref(), Ok(&*ENCRYPTED_FILE));
-    }
+    fn encrypted_file() -> &'static EncryptedFile {
+        static ONCE_LOCK: OnceLock<EncryptedFile> = OnceLock::new();
 
-    #[test]
-    fn test_encrypted_file_mix() {
-        let mut encrypted_file: EncryptedFile = encrypted_file();
-
-        encrypted_file.mix(1_usize);
-
-        assert_eq!(encrypted_file.mix(1_usize), *ENCRYPTED_FILE_MIXED);
-    }
-
-    #[test]
-    fn test_encrypted_file_grove_coordinates() {
-        assert_eq!(
-            ENCRYPTED_FILE_MIXED.grove_coordinates(DELTA),
-            [4_i64, -3_i64, 2_i64]
-        );
-    }
-
-    #[test]
-    fn test_encrypted_file_grove_coordinates_sum() {
-        assert_eq!(ENCRYPTED_FILE_MIXED.grove_coordinates_sum(DELTA), 3_i64);
-    }
-
-    fn encrypted_file() -> EncryptedFile {
-        EncryptedFile {
+        ONCE_LOCK.get_or_init(|| EncryptedFile {
             list: list_elements![
                 (6 <-  1 -> 1),
                 (0 <-  2 -> 2),
@@ -248,11 +217,13 @@ mod tests {
             ],
             zero: 5_usize,
             modulo_divisor: 6_i64,
-        }
+        })
     }
 
-    fn encrypted_file_mixed() -> EncryptedFile {
-        EncryptedFile {
+    fn encrypted_file_mixed() -> &'static EncryptedFile {
+        static ONCE_LOCK: OnceLock<EncryptedFile> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| EncryptedFile {
             list: list_elements![
                 (4 <-  1 -> 1),
                 (0 <-  2 -> 2),
@@ -264,6 +235,34 @@ mod tests {
             ],
             zero: 5_usize,
             modulo_divisor: 6_i64,
-        }
+        })
+    }
+
+    #[test]
+    fn test_encrypted_file_try_from_str() {
+        assert_eq!(ENCRYPTED_FILE_STR.try_into().as_ref(), Ok(encrypted_file()));
+    }
+
+    #[test]
+    fn test_encrypted_file_mix() {
+        let mut encrypted_file: EncryptedFile = encrypted_file().clone();
+
+        assert_eq!(encrypted_file.mix(1_usize), encrypted_file_mixed());
+    }
+
+    #[test]
+    fn test_encrypted_file_grove_coordinates() {
+        assert_eq!(
+            encrypted_file_mixed().grove_coordinates(Solution::DELTA),
+            [4_i64, -3_i64, 2_i64]
+        );
+    }
+
+    #[test]
+    fn test_encrypted_file_grove_coordinates_sum() {
+        assert_eq!(
+            encrypted_file_mixed().grove_coordinates_sum(Solution::DELTA),
+            3_i64
+        );
     }
 }
