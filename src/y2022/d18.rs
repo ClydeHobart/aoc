@@ -1,5 +1,5 @@
 use {
-    aoc::*,
+    crate::*,
     glam::{BVec4, IVec3},
     std::{
         fmt::{Debug, Formatter, Result as FmtResult},
@@ -8,10 +8,6 @@ use {
         str::{from_utf8_unchecked, FromStr, Split},
     },
 };
-
-#[cfg(test)]
-#[macro_use]
-extern crate lazy_static;
 
 #[derive(Copy, Clone, Default, PartialEq)]
 #[repr(C, align(1))]
@@ -124,7 +120,7 @@ impl From<LavaDropletScanCell> for [bool; LavaDropletScanCell::SIZE] {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseIVec3Error<'s> {
+pub enum ParseIVec3Error<'s> {
     NoXToken,
     FailedToParseX(ParseIntError),
     NoYToken,
@@ -284,14 +280,6 @@ impl<'l> LavaDropletScanNotExternallyExposedBuilder<'l> {
 
         let mut not_externally_exposed: Grid3D<LavaDropletScanCell> = Grid3D::allocate(dimensions);
 
-        not_externally_exposed.resize_layers(dimensions.z as usize, || LavaDropletScanCell {
-            occupied: true,
-            ..Default::default()
-        });
-        not_externally_exposed
-            .get_mut(&IVec3::ZERO)
-            .unwrap()
-            .occupied = false;
         LavaDropletScanNotExternallyExposedBuilder {
             lava_droplet_scan,
             not_externally_exposed: &mut not_externally_exposed,
@@ -348,158 +336,174 @@ impl<'l> BreadthFirstSearch for LavaDropletScanNotExternallyExposedBuilder<'l> {
     fn update_parent(&mut self, _from: &Self::Vertex, to: &Self::Vertex) {
         self.not_externally_exposed.get_mut(to).unwrap().occupied = false;
     }
+
+    fn reset(&mut self) {
+        self.not_externally_exposed.resize_layers(
+            self.not_externally_exposed.dimensions().z as usize,
+            || LavaDropletScanCell {
+                occupied: true,
+                ..Default::default()
+            },
+        );
+        self.not_externally_exposed
+            .get_mut(&IVec3::ZERO)
+            .unwrap()
+            .occupied = false;
+    }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day18.txt");
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(LavaDropletScan);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(
-                input_file_path,
-                |input: &str| match LavaDropletScan::try_from(input) {
-                    Ok(lava_droplet_scan) => {
-                        dbg!(lava_droplet_scan.surface_area());
-                        dbg!(lava_droplet_scan.surface_area_external_only());
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                },
-            )
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+impl Solution {
+    fn surface_area(&self) -> usize {
+        self.0.surface_area()
+    }
+
+    fn surface_area_external_only(&self) -> usize {
+        self.0.surface_area_external_only()
+    }
+}
+
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.surface_area());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.surface_area_external_only());
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = ParseIVec3Error<'i>;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(input.try_into()?))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const LAVA_DROPLET_SCAN_STR: &str =
         "2,2,2\n1,2,2\n3,2,2\n2,1,2\n2,3,2\n2,2,1\n2,2,3\n2,2,4\n2,2,6\n1,2,5\n3,2,5\n2,1,5\n2,3,5";
 
-    lazy_static! {
-        static ref LAVA_DROPLET_SCAN: LavaDropletScan = lava_droplet_scan();
+    fn lava_droplet_scan() -> &'static LavaDropletScan {
+        static ONCE_LOCK: OnceLock<LavaDropletScan> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            const OFFSET: IVec3 = IVec3::ZERO;
+            const DIMENSIONS: IVec3 = IVec3::new(4_i32, 4_i32, 7_i32);
+
+            macro_rules! cubes {
+                ($( ( $x:expr, $y:expr, $z:expr ), )*) => {
+                    vec![ $( IVec3::new($x, $y, $z) - OFFSET, )* ]
+                };
+            }
+
+            macro_rules! grid {
+                [ $( [ $( [ $( $cell:literal ),* ], )* ], )*] => { {
+                    let cells: Vec<LavaDropletScanCell> = vec![
+                        $( $( $( $cell.into(), )* )* )*
+                    ];
+
+                    let mut grid: Grid3D<LavaDropletScanCell> = Grid3D::default(DIMENSIONS);
+
+                    grid.cells_mut().copy_from_slice(&cells);
+
+                    grid
+                } };
+            }
+
+            LavaDropletScan {
+                cubes: cubes![
+                    (2, 2, 2),
+                    (1, 2, 2),
+                    (3, 2, 2),
+                    (2, 1, 2),
+                    (2, 3, 2),
+                    (2, 2, 1),
+                    (2, 2, 3),
+                    (2, 2, 4),
+                    (2, 2, 6),
+                    (1, 2, 5),
+                    (3, 2, 5),
+                    (2, 1, 5),
+                    (2, 3, 5),
+                ],
+                grid: grid![
+                    // z == 0
+                    [
+                        ["    ", "    ", "    ", "    "],
+                        ["    ", "    ", "    ", "    "],
+                        ["    ", "    ", "  Z ", "    "],
+                        ["    ", "    ", "    ", "    "],
+                    ],
+                    // z == 1
+                    [
+                        ["    ", "    ", "    ", "    "],
+                        ["    ", "    ", " YZ ", "    "],
+                        ["    ", "X Z ", "XY O", "  Z "],
+                        ["    ", "    ", "  Z ", "    "],
+                    ],
+                    // z == 2
+                    [
+                        ["    ", "    ", " Y  ", "    "],
+                        ["    ", "XY  ", "X ZO", " Y  "],
+                        ["X   ", " YZO", "   O", "XYZO"],
+                        ["    ", "X   ", "XYZO", "    "],
+                    ],
+                    // z == 3
+                    [
+                        ["    ", "    ", "    ", "    "],
+                        ["    ", "    ", " Y  ", "    "],
+                        ["    ", "X   ", "XY O", "    "],
+                        ["    ", "    ", "    ", "    "],
+                    ],
+                    // z == 4
+                    [
+                        ["    ", "    ", "    ", "    "],
+                        ["    ", "    ", " YZ ", "    "],
+                        ["    ", "X Z ", "XYZO", "  Z "],
+                        ["    ", "    ", "  Z ", "    "],
+                    ],
+                    // z == 5
+                    [
+                        ["    ", "    ", " Y  ", "    "],
+                        ["    ", "XY  ", "XYZO", " Y  "],
+                        ["X   ", "XYZO", "XYZ ", "XYZO"],
+                        ["    ", "X   ", "XYZO", "    "],
+                    ],
+                    // z == 6
+                    [
+                        ["    ", "    ", "    ", "    "],
+                        ["    ", "    ", " Y  ", "    "],
+                        ["    ", "X   ", "XYZO", "    "],
+                        ["    ", "    ", "    ", "    "],
+                    ],
+                ],
+                offset: OFFSET,
+            }
+        })
     }
 
     #[test]
     fn test_lava_droplet_scan_try_from_str() {
         assert_eq!(
             LAVA_DROPLET_SCAN_STR.try_into().as_ref(),
-            Ok(&*LAVA_DROPLET_SCAN)
+            Ok(lava_droplet_scan())
         );
     }
 
     #[test]
     fn test_lava_droplet_scan_surface_area() {
-        assert_eq!(LAVA_DROPLET_SCAN.surface_area(), 64_usize);
+        assert_eq!(lava_droplet_scan().surface_area(), 64_usize);
     }
 
     #[test]
     fn test_lava_droplet_scan_surface_area_external_only() {
-        assert_eq!(LAVA_DROPLET_SCAN.surface_area_external_only(), 58_usize);
-    }
-
-    fn lava_droplet_scan() -> LavaDropletScan {
-        const OFFSET: IVec3 = IVec3::ZERO;
-        const DIMENSIONS: IVec3 = IVec3::new(4_i32, 4_i32, 7_i32);
-
-        macro_rules! cubes {
-            ($( ( $x:expr, $y:expr, $z:expr ), )*) => {
-                vec![ $( IVec3::new($x, $y, $z) - OFFSET, )* ]
-            };
-        }
-
-        macro_rules! grid {
-            [ $( [ $( [ $( $cell:literal ),* ], )* ], )*] => { {
-                let cells: Vec<LavaDropletScanCell> = vec![
-                    $( $( $( $cell.into(), )* )* )*
-                ];
-
-                let mut grid: Grid3D<LavaDropletScanCell> = Grid3D::default(DIMENSIONS);
-
-                grid.cells_mut().copy_from_slice(&cells);
-
-                grid
-            } };
-        }
-
-        LavaDropletScan {
-            cubes: cubes![
-                (2, 2, 2),
-                (1, 2, 2),
-                (3, 2, 2),
-                (2, 1, 2),
-                (2, 3, 2),
-                (2, 2, 1),
-                (2, 2, 3),
-                (2, 2, 4),
-                (2, 2, 6),
-                (1, 2, 5),
-                (3, 2, 5),
-                (2, 1, 5),
-                (2, 3, 5),
-            ],
-            grid: grid![
-                // z == 0
-                [
-                    ["    ", "    ", "    ", "    "],
-                    ["    ", "    ", "    ", "    "],
-                    ["    ", "    ", "  Z ", "    "],
-                    ["    ", "    ", "    ", "    "],
-                ],
-                // z == 1
-                [
-                    ["    ", "    ", "    ", "    "],
-                    ["    ", "    ", " YZ ", "    "],
-                    ["    ", "X Z ", "XY O", "  Z "],
-                    ["    ", "    ", "  Z ", "    "],
-                ],
-                // z == 2
-                [
-                    ["    ", "    ", " Y  ", "    "],
-                    ["    ", "XY  ", "X ZO", " Y  "],
-                    ["X   ", " YZO", "   O", "XYZO"],
-                    ["    ", "X   ", "XYZO", "    "],
-                ],
-                // z == 3
-                [
-                    ["    ", "    ", "    ", "    "],
-                    ["    ", "    ", " Y  ", "    "],
-                    ["    ", "X   ", "XY O", "    "],
-                    ["    ", "    ", "    ", "    "],
-                ],
-                // z == 4
-                [
-                    ["    ", "    ", "    ", "    "],
-                    ["    ", "    ", " YZ ", "    "],
-                    ["    ", "X Z ", "XYZO", "  Z "],
-                    ["    ", "    ", "  Z ", "    "],
-                ],
-                // z == 5
-                [
-                    ["    ", "    ", " Y  ", "    "],
-                    ["    ", "XY  ", "XYZO", " Y  "],
-                    ["X   ", "XYZO", "XYZ ", "XYZO"],
-                    ["    ", "X   ", "XYZO", "    "],
-                ],
-                // z == 6
-                [
-                    ["    ", "    ", "    ", "    "],
-                    ["    ", "    ", " Y  ", "    "],
-                    ["    ", "X   ", "XYZO", "    "],
-                    ["    ", "    ", "    ", "    "],
-                ],
-            ],
-            offset: OFFSET,
-        }
+        assert_eq!(lava_droplet_scan().surface_area_external_only(), 58_usize);
     }
 }

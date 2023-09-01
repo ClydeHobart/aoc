@@ -182,6 +182,8 @@ pub trait BreadthFirstSearch: Sized {
     fn reset(&mut self);
 
     fn run(&mut self) -> Option<Vec<Self::Vertex>> {
+        self.reset();
+
         let mut queue: VecDeque<Self::Vertex> = VecDeque::new();
         let mut explored: HashSet<Self::Vertex> = HashSet::new();
 
