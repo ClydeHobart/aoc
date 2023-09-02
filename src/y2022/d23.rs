@@ -1,6 +1,7 @@
 use {
-    aoc::*,
+    crate::*,
     glam::IVec2,
+    static_assertions::const_assert_eq,
     std::{
         collections::HashMap,
         fmt::{Debug, Formatter, Result as FmtResult},
@@ -11,13 +12,6 @@ use {
     },
     strum::EnumCount,
 };
-
-#[cfg(test)]
-#[macro_use]
-extern crate lazy_static;
-
-#[macro_use]
-extern crate static_assertions;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(u8)]
@@ -475,7 +469,7 @@ impl Default for ElfGrid {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseElfGridError {
+pub enum ParseElfGridError {
     RowLengthsDoNotMatch,
     InvalidElfCellByte(u8),
 }
@@ -523,56 +517,80 @@ impl TryFrom<&str> for ElfGrid {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day23.txt");
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(ElfGrid);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                match ElfGrid::try_from(input) {
-                    Ok(mut elf_grid_1) => {
-                        let mut elf_grid_2: ElfGrid = elf_grid_1.clone();
+impl Solution {
+    fn empty_ground_tiles_after_rounds(
+        &self,
+        rounds: usize,
+        try_as_string: bool,
+    ) -> (usize, Option<Grid2DStringResult>) {
+        self.perform_elf_grid_operation_and_get_optional_string(
+            |elf_grid| elf_grid.run(rounds).empty_ground_tiles(),
+            try_as_string,
+        )
+    }
 
-                        dbg!(elf_grid_1.run(10_usize).empty_ground_tiles());
-                        dbg!(elf_grid_2.run_until_static());
+    fn rounds_until_static(&self, try_as_string: bool) -> (usize, Option<Grid2DStringResult>) {
+        self.perform_elf_grid_operation_and_get_optional_string(
+            |elf_grid| elf_grid.run_until_static(),
+            try_as_string,
+        )
+    }
 
-                        if args.verbose {
-                            println!(
-                                "elf_grid_1.try_as_string():\n\
-                                \n\
-                                {}\n\
-                                elf_grid_2.try_as_string():\n\
-                                \n\
-                                {}",
-                                elf_grid_1
-                                    .try_as_string()
-                                    .unwrap_or_else(|err| format!("{err:#?}")),
-                                elf_grid_2
-                                    .try_as_string()
-                                    .unwrap_or_else(|err| format!("{err:#?}")),
-                            );
-                        }
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                }
-            })
+    fn perform_elf_grid_operation_and_get_optional_string<F: Fn(&mut ElfGrid) -> usize>(
+        &self,
+        f: F,
+        try_as_string: bool,
+    ) -> (usize, Option<Grid2DStringResult>) {
+        let mut elf_grid: ElfGrid = self.0.clone();
+        let value: usize = f(&mut elf_grid);
+        let string: Option<Grid2DStringResult> = if try_as_string {
+            Some(elf_grid.try_as_string())
+        } else {
+            None
+        };
+
+        (value, string)
+    }
+}
+
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, args: &QuestionArgs) {
+        let (empty_ground_tiles_after_rounds, string): (usize, Option<Grid2DStringResult>) =
+            self.empty_ground_tiles_after_rounds(10_usize, args.verbose);
+
+        dbg!(empty_ground_tiles_after_rounds);
+
+        if let Some(Ok(string)) = string {
+            println!("{string}");
         }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+    }
+
+    fn q2_internal(&mut self, args: &QuestionArgs) {
+        let (rounds_until_static, string): (usize, Option<Grid2DStringResult>) =
+            self.rounds_until_static(args.verbose);
+
+        dbg!(rounds_until_static);
+
+        if let Some(Ok(string)) = string {
+            println!("{string}");
+        }
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = ParseElfGridError;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(input.try_into()?))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const ELF_GRID_STR: &str = concat!(
         "....#..\n",
@@ -615,9 +633,20 @@ mod tests {
     const ELF_GRID_SMALL_2_ROUNDS: &str = ".##.\n#...\n...#\n....\n.#..\n";
     const ELF_GRID_SMALL_3_ROUNDS: &str = "..#..\n....#\n#....\n....#\n.....\n..#..\n";
 
-    lazy_static! {
-        static ref ELF_GRID: ElfGrid = elf_grid();
-        static ref ELF_GRID_SMALL: ElfGrid = elf_grid_small();
+    fn elf_grid() -> &'static ElfGrid {
+        static ONCE_LOCK: OnceLock<ElfGrid> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            ElfGrid::try_from(&ELF_GRID_STR[..ELF_GRID_STR.len() - 1_usize]).unwrap()
+        })
+    }
+
+    fn elf_grid_small() -> &'static ElfGrid {
+        static ONCE_LOCK: OnceLock<ElfGrid> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            ElfGrid::try_from(&ELF_GRID_SMALL_STR[..ELF_GRID_SMALL_STR.len() - 1_usize]).unwrap()
+        })
     }
 
     #[test]
@@ -633,7 +662,7 @@ mod tests {
 
     #[test]
     fn test_elf_grid_run() {
-        let mut elf_grid_small: ElfGrid = ELF_GRID_SMALL.clone();
+        let mut elf_grid_small: ElfGrid = elf_grid_small().clone();
 
         assert_eq!(
             elf_grid_small.run(1_usize).try_as_string(),
@@ -648,7 +677,7 @@ mod tests {
             Ok(ELF_GRID_SMALL_3_ROUNDS.into())
         );
 
-        let mut elf_grid: ElfGrid = ELF_GRID.clone();
+        let mut elf_grid: ElfGrid = elf_grid().clone();
 
         assert_eq!(
             elf_grid.run(10_usize).try_as_string(),
@@ -663,21 +692,13 @@ mod tests {
     #[test]
     fn test_elf_grid_empty_ground_tiles() {
         assert_eq!(
-            ELF_GRID.clone().run(10_usize).empty_ground_tiles(),
+            elf_grid().clone().run(10_usize).empty_ground_tiles(),
             110_usize
         );
     }
 
     #[test]
     fn test_elf_grid_run_until_static() {
-        assert_eq!(ELF_GRID.clone().run_until_static(), 20_usize);
-    }
-
-    fn elf_grid() -> ElfGrid {
-        ElfGrid::try_from(&ELF_GRID_STR[..ELF_GRID_STR.len() - 1_usize]).unwrap()
-    }
-
-    fn elf_grid_small() -> ElfGrid {
-        ElfGrid::try_from(&ELF_GRID_SMALL_STR[..ELF_GRID_SMALL_STR.len() - 1_usize]).unwrap()
+        assert_eq!(elf_grid().clone().run_until_static(), 20_usize);
     }
 }
