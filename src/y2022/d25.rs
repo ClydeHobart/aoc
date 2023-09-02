@@ -1,11 +1,9 @@
-use std::fmt::Write;
-
 use {
-    aoc::*,
-    std::fmt::{Debug, Formatter, Result as FmtResult},
+    crate::*,
+    std::fmt::{Debug, Formatter, Result as FmtResult, Write},
 };
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 struct Snafu(i64);
 
 impl Snafu {
@@ -14,7 +12,7 @@ impl Snafu {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseSnafuError {
+pub enum ParseSnafuError {
     EmptyStr,
     InvalidInitialByte(u8),
     InvalidByte(u8),
@@ -90,30 +88,34 @@ impl TryFrom<&str> for Snafu {
     }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day25.txt");
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(Vec<Snafu>);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(input_file_path, |input: &str| {
-                dbg!(Snafu(
-                    input
-                        .split('\n')
-                        .map(Snafu::try_from)
-                        .map(Result::unwrap)
-                        .map(i64::from)
-                        .sum(),
-                ));
-            })
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+impl Solution {
+    fn sum(&self) -> Snafu {
+        Snafu(self.0.iter().copied().map(i64::from).sum())
+    }
+}
+
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.sum());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {}
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = ParseSnafuError;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        let mut snafus: Vec<Snafu> = Vec::new();
+
+        input.split('\n').try_fold((), |_, line| {
+            Snafu::try_from(line).map(|snafu| snafus.push(snafu))
+        })?;
+
+        Ok(Self(snafus))
     }
 }
 
