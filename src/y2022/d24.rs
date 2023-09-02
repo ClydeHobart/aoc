@@ -1,6 +1,7 @@
 use {
-    aoc::*,
+    crate::*,
     glam::{IVec2, IVec3, Vec3Swizzles},
+    static_assertions::const_assert_eq,
     std::{
         collections::HashMap,
         iter::Peekable,
@@ -10,16 +11,9 @@ use {
     strum::{EnumCount, IntoEnumIterator},
 };
 
-#[cfg(test)]
-#[macro_use]
-extern crate lazy_static;
-
-#[macro_use]
-extern crate static_assertions;
-
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(u8)]
-enum BlizzardCellByte {
+pub enum BlizzardCellByte {
     Wall = b'#',
     #[default]
     ClearGround = b'.',
@@ -75,7 +69,7 @@ impl BlizzardCellByte {
 }
 
 #[derive(Debug, PartialEq)]
-struct ParseBlizzardCellByteError(u8);
+pub struct ParseBlizzardCellByteError(u8);
 
 impl TryFrom<u8> for BlizzardCellByte {
     type Error = ParseBlizzardCellByteError;
@@ -208,7 +202,7 @@ impl From<BlizzardGrid2D> for Grid2DString {
 }
 
 #[derive(Debug, PartialEq)]
-enum InvalidBlizzardGrid2DState {
+pub enum InvalidBlizzardGrid2DState {
     GapInWall(IVec2),
     InvalidDoor(IVec2),
     BlizzardHeadedForDoor(IVec2),
@@ -216,7 +210,7 @@ enum InvalidBlizzardGrid2DState {
 }
 
 #[derive(Debug, PartialEq)]
-enum ParseBlizzardGrid2DError {
+pub enum ParseBlizzardGrid2DError {
     InvalidLineLength,
     FailedToParseBlizzardCellByte(ParseBlizzardCellByteError),
     InvalidState(InvalidBlizzardGrid2DState),
@@ -273,6 +267,7 @@ impl TryFrom<&str> for BlizzardGrid2D {
     }
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Clone)]
 struct BlizzardGrid3D {
     north_south: Grid3D<BlizzardCellByte>,
@@ -344,15 +339,7 @@ impl BlizzardGrid3D {
     fn path(&self, start: IVec3, end: IVec2) -> Option<Vec<IVec3>> {
         ExpeditionPathSearch {
             blizzard_grid_3d: self,
-            search: [(
-                start,
-                PathElement {
-                    cost: 0_i32,
-                    ..Default::default()
-                },
-            )]
-            .into_iter()
-            .collect(),
+            search: HashMap::new(),
             start,
             end,
         }
@@ -490,7 +477,7 @@ impl BlizzardGrid3D {
 }
 
 #[derive(Debug, PartialEq)]
-enum ConvertBlizzardGrid3DError {
+pub enum ConvertBlizzardGrid3DError {
     FromStr(ParseBlizzardGrid2DError),
     AmbiguousBlizzardCellByte(BlizzardCellByte),
 }
@@ -618,33 +605,33 @@ impl<'b> AStar for ExpeditionPathSearch<'b> {
             .map_or(i32::MAX, |path_element| path_element.cost)
     }
 
-    fn cost_between_neighbors(&self, _from: &Self::Vertex, _to: &Self::Vertex) -> Self::Cost {
-        1_i32
-    }
-
     fn heuristic(&self, vertex: &Self::Vertex) -> Self::Cost {
         abs_sum_2d(self.end - vertex.xy())
     }
 
-    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>) {
+    fn neighbors(
+        &self,
+        vertex: &Self::Vertex,
+        neighbors: &mut Vec<OpenSetElement<Self::Vertex, Self::Cost>>,
+    ) {
         neighbors.clear();
 
         let vertex_plus_z: IVec3 = *vertex + IVec3::Z;
 
         if vertex_plus_z.xy() == self.start.xy() || self.blizzard_grid_3d.is_clear(vertex_plus_z) {
-            neighbors.push(vertex_plus_z);
+            neighbors.push(OpenSetElement(vertex_plus_z, 1_i32));
         }
 
         for dir in Direction::iter() {
             let pos: IVec3 = vertex_plus_z + IVec3::from((dir.vec(), 0_i32));
 
             if self.is_end(&pos) || self.blizzard_grid_3d.is_clear(pos) {
-                neighbors.push(pos);
+                neighbors.push(OpenSetElement(pos, 1_i32));
             }
         }
     }
 
-    fn update_score(
+    fn update_vertex(
         &mut self,
         from: &Self::Vertex,
         to: &Self::Vertex,
@@ -659,44 +646,57 @@ impl<'b> AStar for ExpeditionPathSearch<'b> {
             },
         );
     }
+
+    fn reset(&mut self) {
+        self.search.clear();
+        self.search.insert(
+            self.start,
+            PathElement {
+                cost: 0_i32,
+                ..Default::default()
+            },
+        );
+    }
 }
 
-fn main() {
-    let args: Args = Args::parse();
-    let input_file_path: &str = args.input_file_path("input/day24.txt");
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(BlizzardGrid3D);
 
-    if let Err(err) =
-        // SAFETY: This operation is unsafe, we're just hoping nobody else touches the file while
-        // this program is executing
-        unsafe {
-            open_utf8_file(
-                input_file_path,
-                |input: &str| match BlizzardGrid3D::try_from(input) {
-                    Ok(blizzard_grid_3d) => {
-                        dbg!(blizzard_grid_3d
-                            .path_to_end()
-                            .map_or(0_usize, |path| path.len() - 1_usize));
-                        dbg!(blizzard_grid_3d
-                            .path_to_end_then_start_then_end()
-                            .map_or(0_usize, |path| path.len() - 1_usize));
-                    }
-                    Err(error) => {
-                        panic!("{error:#?}")
-                    }
-                },
-            )
-        }
-    {
-        eprintln!(
-            "Encountered error {} when opening file \"{}\"",
-            err, input_file_path
-        );
+impl Solution {
+    fn fewest_minutes_to_end(&self) -> usize {
+        self.0
+            .path_to_end()
+            .map_or(0_usize, |path| path.len() - 1_usize)
+    }
+
+    fn fewest_minutes_to_end_then_start_then_end(&self) -> usize {
+        self.0
+            .path_to_end_then_start_then_end()
+            .map_or(0_usize, |path| path.len() - 1_usize)
+    }
+}
+
+impl RunQuestions for Solution {
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.fewest_minutes_to_end());
+    }
+
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.fewest_minutes_to_end_then_start_then_end());
+    }
+}
+
+impl<'i> TryFrom<&'i str> for Solution {
+    type Error = ConvertBlizzardGrid3DError;
+
+    fn try_from(input: &'i str) -> Result<Self, Self::Error> {
+        Ok(Self(input.try_into()?))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, std::sync::OnceLock};
 
     const BLIZZARD_GRID_2D_SIMPLE_TIME_0: &str = concat!(
         "#.#####\n",
@@ -761,9 +761,21 @@ mod tests {
         "######.#",
     );
 
-    lazy_static! {
-        static ref BLIZZARD_GRID_3D_SIMPLE: BlizzardGrid3D = blizzard_grid_3d_simple();
-        static ref BLIZZARD_GRID_3D: BlizzardGrid3D = blizzard_grid_3d();
+    fn blizzard_grid_3d_simple() -> &'static BlizzardGrid3D {
+        static ONCE_LOCK: OnceLock<BlizzardGrid3D> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| {
+            BlizzardGrid3D::try_from(
+                &BLIZZARD_GRID_2D_SIMPLE_TIME_0[..BLIZZARD_GRID_2D_SIMPLE_TIME_0.len() - 1_usize],
+            )
+            .unwrap()
+        })
+    }
+
+    fn blizzard_grid_3d() -> &'static BlizzardGrid3D {
+        static ONCE_LOCK: OnceLock<BlizzardGrid3D> = OnceLock::new();
+
+        ONCE_LOCK.get_or_init(|| BLIZZARD_GRID_2D.try_into().unwrap())
     }
 
     #[test]
@@ -780,23 +792,23 @@ mod tests {
     #[test]
     fn test_blizzard_grid_3d_fill_out_period() {
         assert_eq!(
-            BLIZZARD_GRID_3D_SIMPLE.try_as_string_at_time(1_usize),
+            blizzard_grid_3d_simple().try_as_string_at_time(1_usize),
             Ok(BLIZZARD_GRID_2D_SIMPLE_TIME_1.into())
         );
         assert_eq!(
-            BLIZZARD_GRID_3D_SIMPLE.try_as_string_at_time(2_usize),
+            blizzard_grid_3d_simple().try_as_string_at_time(2_usize),
             Ok(BLIZZARD_GRID_2D_SIMPLE_TIME_2.into())
         );
         assert_eq!(
-            BLIZZARD_GRID_3D_SIMPLE.try_as_string_at_time(3_usize),
+            blizzard_grid_3d_simple().try_as_string_at_time(3_usize),
             Ok(BLIZZARD_GRID_2D_SIMPLE_TIME_3.into())
         );
         assert_eq!(
-            BLIZZARD_GRID_3D_SIMPLE.try_as_string_at_time(4_usize),
+            blizzard_grid_3d_simple().try_as_string_at_time(4_usize),
             Ok(BLIZZARD_GRID_2D_SIMPLE_TIME_4.into())
         );
         assert_eq!(
-            BLIZZARD_GRID_3D_SIMPLE.try_as_string_at_time(5_usize),
+            blizzard_grid_3d_simple().try_as_string_at_time(5_usize),
             Ok(BLIZZARD_GRID_2D_SIMPLE_TIME_5.into())
         );
     }
@@ -804,7 +816,7 @@ mod tests {
     #[test]
     fn test_blizzard_grid_3d_path_to_end() {
         assert_eq!(
-            BLIZZARD_GRID_3D
+            blizzard_grid_3d()
                 .path_to_end()
                 .map(|path| path.len() - 1_usize),
             Some(18_usize)
@@ -814,21 +826,10 @@ mod tests {
     #[test]
     fn test_blizzard_grid_3d_path_to_end_then_start_then_end() {
         assert_eq!(
-            BLIZZARD_GRID_3D
+            blizzard_grid_3d()
                 .path_to_end_then_start_then_end()
                 .map(|path| path.len() - 1_usize),
             Some(54_usize)
         );
-    }
-
-    fn blizzard_grid_3d_simple() -> BlizzardGrid3D {
-        BlizzardGrid3D::try_from(
-            &BLIZZARD_GRID_2D_SIMPLE_TIME_0[..BLIZZARD_GRID_2D_SIMPLE_TIME_0.len() - 1_usize],
-        )
-        .unwrap()
-    }
-
-    fn blizzard_grid_3d() -> BlizzardGrid3D {
-        BLIZZARD_GRID_2D.try_into().unwrap()
     }
 }
