@@ -89,12 +89,12 @@ pub trait AStar: Sized {
                 for OpenSetElement(neighbor, cost) in neighbors.iter_mut() {
                     let start_to_neighbor: Self::Cost = start_to_current.clone() + cost.clone();
 
-                    if start_to_neighbor < self.cost_from_start(&neighbor) {
-                        let neighbor_heuristic: Self::Cost = self.heuristic(&neighbor);
+                    if start_to_neighbor < self.cost_from_start(neighbor) {
+                        let neighbor_heuristic: Self::Cost = self.heuristic(neighbor);
 
                         self.update_vertex(
                             &current,
-                            &neighbor,
+                            neighbor,
                             start_to_neighbor.clone(),
                             neighbor_heuristic.clone(),
                         );
@@ -266,8 +266,8 @@ pub trait Dijkstra: Sized {
                     let start_to_neighbor: Self::Cost =
                         start_to_current.clone() + neighbor_cost.clone();
 
-                    if start_to_neighbor < self.cost_from_start(&neighbor) {
-                        self.update_vertex(&current, &neighbor, start_to_neighbor.clone());
+                    if start_to_neighbor < self.cost_from_start(neighbor) {
+                        self.update_vertex(&current, neighbor, start_to_neighbor.clone());
 
                         let is_in_open_set: bool = !open_set_set.insert(neighbor.clone());
 

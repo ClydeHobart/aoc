@@ -1,9 +1,7 @@
 use {
     crate::*,
     glam::IVec2,
-    static_assertions::const_assert_eq,
     std::{
-        mem::{size_of, transmute},
         num::ParseIntError,
         slice::{Iter, SliceIndex},
         str::{FromStr, Split},
@@ -11,33 +9,34 @@ use {
     strum::EnumCount,
 };
 
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
-#[repr(u8)]
-enum MapCell {
-    #[default]
-    Void = b' ',
-    Open = b'.',
-    Wall = b'#',
+define_cell! {
+    #[repr(u8)]
+    #[derive(Copy, Clone, Debug, Default, PartialEq)]
+    enum MapCell {
+        #[default]
+        Void = VOID = b' ',
+        Open = OPEN = b'.',
+        Wall = WALL = b'#',
+        North = NORTH = b'^',
+        East = EAST = b'>',
+        South = SOUTH = b'v',
+        West = WEST = b'<',
+    }
 }
 
 impl MapCell {
-    const VOID_U8: u8 = Self::Void as u8;
-    const OPEN_U8: u8 = Self::Open as u8;
-    const WALL_U8: u8 = Self::Wall as u8;
+    fn is_valid_str_input(&self) -> bool {
+        matches!(self, Self::Void | Self::Open | Self::Wall)
+    }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct InvalidMapCellByte(u8);
-
-impl TryFrom<u8> for MapCell {
-    type Error = InvalidMapCellByte;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
+impl From<Direction> for MapCell {
+    fn from(value: Direction) -> Self {
         match value {
-            Self::VOID_U8 => Ok(Self::Void),
-            Self::OPEN_U8 => Ok(Self::Open),
-            Self::WALL_U8 => Ok(Self::Wall),
-            invalid_byte => Err(InvalidMapCellByte(invalid_byte)),
+            Direction::North => Self::North,
+            Direction::East => Self::East,
+            Direction::South => Self::South,
+            Direction::West => Self::West,
         }
     }
 }
@@ -46,22 +45,8 @@ impl TryFrom<u8> for MapCell {
 #[derive(Clone)]
 struct Map(Grid2D<MapCell>);
 
-impl Map {}
-
-impl From<Map> for Grid2DString {
-    fn from(map: Map) -> Self {
-        const_assert_eq!(size_of::<MapCell>(), size_of::<u8>());
-        const_assert_eq!(size_of::<Map>(), size_of::<Grid2DString>());
-
-        // SAFETY: Currently, both `Map` and `MapString` are just new-type pattern structs around
-        // `Grid2D` structs of 1-Byte-sized elements. The const asserts above will hopefully catch
-        // any issues, should that not be the case at some point
-        unsafe { transmute(map) }
-    }
-}
-
 impl TryFrom<&str> for Map {
-    type Error = InvalidMapCellByte;
+    type Error = ();
 
     fn try_from(map_str: &str) -> Result<Self, Self::Error> {
         let (width, height): (i32, i32) =
@@ -81,7 +66,11 @@ impl TryFrom<&str> for Map {
                 CellIter2D::until_boundary(&map.0, row_pos_iter, Direction::East)
                     .zip(map_row_str.as_bytes().iter().copied())
             {
-                *map.0.get_mut(pos).unwrap() = map_cell_byte.try_into()?;
+                *map.0.get_mut(pos).unwrap() = map_cell_byte
+                    .try_into()
+                    .ok()
+                    .filter(MapCell::is_valid_str_input)
+                    .ok_or(())?;
             }
         }
 
@@ -693,19 +682,6 @@ struct TraceState {
     dir: Direction,
 }
 
-impl TraceState {
-    fn byte(&self) -> u8 {
-        use Direction::*;
-
-        match self.dir {
-            North => b'^',
-            East => b'>',
-            South => b'v',
-            West => b'<',
-        }
-    }
-}
-
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Clone)]
 struct PasswordTracer {
@@ -830,23 +806,21 @@ impl PasswordTracer {
         )
     }
 
-    fn try_as_string_for_state_range<R: SliceIndex<[TraceState], Output = [TraceState]>>(
+    fn as_string_for_state_range<R: SliceIndex<[TraceState], Output = [TraceState]>>(
         &self,
         range: R,
-    ) -> Grid2DStringResult {
-        let mut grid_2d_string: Grid2DString = self.map.clone().into();
-
-        let grid: &mut Grid2D<u8> = grid_2d_string.grid_mut();
+    ) -> String {
+        let mut map_cell_grid: Grid2D<MapCell> = self.map.0.clone();
 
         for trace_state in self.states[range].iter() {
-            *grid.get_mut(trace_state.pos).unwrap() = trace_state.byte();
+            *map_cell_grid.get_mut(trace_state.pos).unwrap() = trace_state.dir.into();
         }
 
-        grid_2d_string.try_as_string()
+        map_cell_grid.into()
     }
 
-    fn try_as_string(&self) -> Grid2DStringResult {
-        self.try_as_string_for_state_range(..)
+    fn as_string(&self) -> String {
+        self.as_string_for_state_range(..)
     }
 
     fn final_password(&self) -> i32 {
@@ -860,7 +834,7 @@ impl PasswordTracer {
 #[derive(Debug, PartialEq)]
 pub enum ParsePasswordTracerError {
     NoMapToken,
-    FailedToParseMap(InvalidMapCellByte),
+    FailedToParseMap(()),
     NoInstructionsToken,
     FailedToParseInstructions(ParseInstructionError),
     ExtraTokenFound,
@@ -907,8 +881,8 @@ impl Solution {
         self.0.run(true).final_password()
     }
 
-    fn try_as_string(&self) -> Grid2DStringResult {
-        self.0.try_as_string()
+    fn as_string(&self) -> String {
+        self.0.as_string()
     }
 }
 
@@ -917,10 +891,7 @@ impl RunQuestions for Solution {
         dbg!(self.final_password_2d());
 
         if args.verbose {
-            println!(
-                "self.try_as_string():\n\n{}",
-                self.try_as_string().unwrap_or_else(|_| "[error]".into())
-            );
+            println!("self.as_string():\n\n{}", self.as_string());
         }
     }
 
@@ -928,10 +899,7 @@ impl RunQuestions for Solution {
         dbg!(self.final_password_3d());
 
         if args.verbose {
-            println!(
-                "self.try_as_string():\n\n{}",
-                self.try_as_string().unwrap_or_else(|_| "[error]".into())
-            );
+            println!("self.as_string():\n\n{}", self.as_string());
         }
     }
 }
@@ -1055,10 +1023,8 @@ mod tests {
     #[test]
     fn test_map_try_from_str() {
         assert_eq!(
-            Map::try_from(MAP_STR)
-                .map(Grid2DString::from)
-                .map(|grid_2d_string| grid_2d_string.try_as_string()),
-            Ok(Ok(MAP_GRID_2D_STRING_STRING.into()))
+            Map::try_from(MAP_STR).map(|map| String::from(map.0)),
+            Ok(MAP_GRID_2D_STRING_STRING.into())
         );
     }
 
@@ -1070,8 +1036,8 @@ mod tests {
     #[test]
     fn test_password_tracer_run() {
         assert_eq!(
-            password_tracer().clone().run(false).try_as_string(),
-            Ok(PASSWORD_TRACER_STRING.into())
+            password_tracer().clone().run(false).as_string(),
+            PASSWORD_TRACER_STRING.to_owned()
         );
     }
 
@@ -1086,8 +1052,8 @@ mod tests {
     #[test]
     fn test_password_tracer_run_cube() {
         assert_eq!(
-            password_tracer().clone().run(true).try_as_string(),
-            Ok(PASSWORD_TRACER_CUBE_STRING.into())
+            password_tracer().clone().run(true).as_string(),
+            PASSWORD_TRACER_CUBE_STRING.to_owned()
         );
     }
 

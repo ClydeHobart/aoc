@@ -621,12 +621,14 @@ macro_rules! define_cell {
         #[repr(u8)]
         $(#[$attr:meta])*
         $pub:vis enum $cell:ident { $(
+            $(#[$variant_attr:meta])*
             $variant:ident = $variant_const:ident = $variant_u8:expr
         ),* $(,)? }
     } => {
         #[repr(u8)]
         $(#[$attr])*
         $pub enum $cell { $(
+            $(#[$variant_attr])*
             $variant = Self::$variant_const,
         )* }
 
@@ -644,7 +646,7 @@ macro_rules! define_cell {
         unsafe impl IsValidAscii for $cell {}
 
         impl Parse for $cell {
-            fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
+            fn parse<'i>(input: &'i str) -> ::nom::IResult<&'i str, Self> {
                 ::nom::combinator::map(
                     ::nom::character::complete::one_of($cell::STR),
                     |value: char| { $cell::try_from(value).unwrap() }

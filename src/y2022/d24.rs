@@ -1,13 +1,7 @@
 use {
     crate::*,
     glam::{IVec2, IVec3, Vec3Swizzles},
-    static_assertions::const_assert_eq,
-    std::{
-        collections::HashMap,
-        iter::Peekable,
-        mem::{size_of, transmute},
-        str::Split,
-    },
+    std::{collections::HashMap, iter::Peekable, mem::transmute, str::Split},
     strum::{EnumCount, IntoEnumIterator},
 };
 
@@ -67,6 +61,9 @@ impl BlizzardCellByte {
         }
     }
 }
+
+// SAFETY: Trivial
+unsafe impl IsValidAscii for BlizzardCellByte {}
 
 #[derive(Debug, PartialEq)]
 pub struct ParseBlizzardCellByteError(u8);
@@ -186,18 +183,6 @@ impl BlizzardGrid2D {
         } else {
             Ok(())
         }
-    }
-}
-
-impl From<BlizzardGrid2D> for Grid2DString {
-    fn from(blizzard_grid_2d: BlizzardGrid2D) -> Self {
-        const_assert_eq!(size_of::<BlizzardCellByte>(), size_of::<u8>());
-        const_assert_eq!(size_of::<BlizzardGrid2D>(), size_of::<Grid2DString>());
-
-        // SAFETY: Currently, both `BlizzardGrid2D` and `Grid2DString` are just new-type pattern
-        // structs around `Grid2D` structs of 1-Byte-sized elements. The const asserts above will
-        // hopefully catch any issues, should that not be the case at some point
-        unsafe { transmute(blizzard_grid_2d) }
     }
 }
 
@@ -471,8 +456,8 @@ impl BlizzardGrid3D {
     }
 
     #[cfg(test)]
-    fn try_as_string_at_time(&self, time: usize) -> Grid2DStringResult {
-        Grid2DString::from(self.get_blizzard_grid_2d_at_time(time)).try_as_string()
+    fn as_string_at_time(&self, time: usize) -> String {
+        self.get_blizzard_grid_2d_at_time(time).0.into()
     }
 }
 
@@ -784,32 +769,32 @@ mod tests {
             BlizzardGrid3D::try_from(
                 &BLIZZARD_GRID_2D_SIMPLE_TIME_0[..BLIZZARD_GRID_2D_SIMPLE_TIME_0.len() - 1_usize]
             )
-            .map(|blizzard_grid_3d| blizzard_grid_3d.try_as_string_at_time(0_usize)),
-            Ok(Ok(BLIZZARD_GRID_2D_SIMPLE_TIME_0.into()))
+            .map(|blizzard_grid_3d| blizzard_grid_3d.as_string_at_time(0_usize)),
+            Ok(BLIZZARD_GRID_2D_SIMPLE_TIME_0.to_owned())
         );
     }
 
     #[test]
     fn test_blizzard_grid_3d_fill_out_period() {
         assert_eq!(
-            blizzard_grid_3d_simple().try_as_string_at_time(1_usize),
-            Ok(BLIZZARD_GRID_2D_SIMPLE_TIME_1.into())
+            blizzard_grid_3d_simple().as_string_at_time(1_usize),
+            BLIZZARD_GRID_2D_SIMPLE_TIME_1.to_owned()
         );
         assert_eq!(
-            blizzard_grid_3d_simple().try_as_string_at_time(2_usize),
-            Ok(BLIZZARD_GRID_2D_SIMPLE_TIME_2.into())
+            blizzard_grid_3d_simple().as_string_at_time(2_usize),
+            BLIZZARD_GRID_2D_SIMPLE_TIME_2.to_owned()
         );
         assert_eq!(
-            blizzard_grid_3d_simple().try_as_string_at_time(3_usize),
-            Ok(BLIZZARD_GRID_2D_SIMPLE_TIME_3.into())
+            blizzard_grid_3d_simple().as_string_at_time(3_usize),
+            BLIZZARD_GRID_2D_SIMPLE_TIME_3.to_owned()
         );
         assert_eq!(
-            blizzard_grid_3d_simple().try_as_string_at_time(4_usize),
-            Ok(BLIZZARD_GRID_2D_SIMPLE_TIME_4.into())
+            blizzard_grid_3d_simple().as_string_at_time(4_usize),
+            BLIZZARD_GRID_2D_SIMPLE_TIME_4.to_owned()
         );
         assert_eq!(
-            blizzard_grid_3d_simple().try_as_string_at_time(5_usize),
-            Ok(BLIZZARD_GRID_2D_SIMPLE_TIME_5.into())
+            blizzard_grid_3d_simple().as_string_at_time(5_usize),
+            BLIZZARD_GRID_2D_SIMPLE_TIME_5.to_owned()
         );
     }
 

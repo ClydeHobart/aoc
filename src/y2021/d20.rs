@@ -94,10 +94,8 @@ impl Solution {
             .count()
     }
 
-    fn try_as_string(&self) -> Option<String> {
-        Grid2DString::from(self.curr_grid.clone())
-            .try_as_string()
-            .ok()
+    fn as_string(&self) -> String {
+        self.curr_grid.clone().into()
     }
 
     fn enhance_until(&mut self, enhancements: usize) {
@@ -186,10 +184,7 @@ impl RunQuestions for Solution {
         dbg!(self.count_light_pixels_after_enhancements(2_usize));
 
         if args.verbose {
-            println!(
-                "self.try_as_string().unwrap_or_default():\n{}",
-                self.try_as_string().unwrap_or_default()
-            );
+            println!("self.as_string():\n{}", self.as_string());
         }
     }
 
@@ -197,10 +192,7 @@ impl RunQuestions for Solution {
         dbg!(self.count_light_pixels_after_enhancements(50_usize));
 
         if args.verbose {
-            println!(
-                "self.try_as_string().unwrap_or_default():\n{}",
-                self.try_as_string().unwrap_or_default()
-            );
+            println!("self.as_string():\n{}", self.as_string());
         }
     }
 }
@@ -319,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_try_as_string() {
-        assert_eq!(solution().try_as_string(), Some(GRID_STRS[0_usize].into()))
+        assert_eq!(solution().as_string(), GRID_STRS[0_usize].to_owned())
     }
 
     #[test]
@@ -327,9 +319,9 @@ mod tests {
         let mut solution: Solution = solution().clone();
 
         solution.enhance_until(1_usize);
-        assert_eq!(solution.try_as_string(), Some(GRID_STRS[1_usize].into()));
+        assert_eq!(solution.as_string(), GRID_STRS[1_usize].to_owned());
         solution.enhance_until(2_usize);
-        assert_eq!(solution.try_as_string(), Some(GRID_STRS[2_usize].into()));
+        assert_eq!(solution.as_string(), GRID_STRS[2_usize].to_owned());
     }
 
     #[test]

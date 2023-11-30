@@ -1,3 +1,20 @@
+//! # Restrictions
+//!
+//! * A valve tag is two capital ASCII characters
+//! * Flow rate is at most `u16::MAX`
+//! * Any valve has at most 5 neighboring valves
+//! * There are at most 64 valves
+//!
+//! # Notes
+//!
+//! This was a really taxing problem. My first solution to the second question worked properly for
+//! the test input, but took too long and too much memory to produce an answer for my input. After
+//! doing some investigation online, I heard that some input is fine to just strip out all the
+//! destinations that the first actor visited, then re-run the search again for the second actor.
+//! My implementation of this approach does not work with the test input, but it does for my input.
+//! This doesn't feel amazing, but I don't have the time right now to implement a more correct
+//! solution.
+
 use {
     crate::*,
     glam::{IVec2, IVec3, Vec3Swizzles},
@@ -12,23 +29,6 @@ use {
         str::FromStr,
     },
 };
-
-///! # Restrictions
-///
-/// * A valve tag is two capital ASCII characters
-/// * Flow rate is at most `u16::MAX`
-/// * Any valve has at most 5 neighboring valves
-/// * There are at most 64 valves
-///
-/// # Notes
-///
-/// This was a really taxing problem. My first solution to the second question worked properly for
-/// the test input, but took too long and too much memory to produce an answer for my input. After
-/// doing some investigation online, I heard that some input is fine to just strip out all the
-/// destinations that the first actor visited, then re-run the search again for the second actor.
-/// My implementation of this approach does not work with the test input, but it does for my input.
-/// This doesn't feel amazing, but I don't have the time right now to implement a more correct
-/// solution.
 
 const MAX_TIME_STEPS: u16 = 30_u16;
 

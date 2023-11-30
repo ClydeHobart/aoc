@@ -29,7 +29,7 @@ impl Path {
     }
 
     fn peek(&self) -> bool {
-        (self.bits & (1_u32 << self.len - 1_u32)) != 0_u32
+        (self.bits & (1_u32 << (self.len - 1_u32))) != 0_u32
     }
 
     fn push(&mut self, right: bool) {

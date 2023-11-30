@@ -103,9 +103,7 @@ impl RunQuestions for Solution {
         dbg!(self.steps_until_stationary());
 
         if args.verbose {
-            if let Ok(grid_string) = Grid2DString::from(self.0.clone()).try_as_string() {
-                println!("{}", grid_string);
-            }
+            println!("{}", String::from(self.0.clone()))
         }
     }
 
@@ -487,9 +485,7 @@ mod tests {
                             next_solution ==\n\
                             {}\n",
                         curr_solution_data.steps,
-                        Grid2DString::from(curr_solution.0)
-                            .try_as_string()
-                            .unwrap_or_else(|_| "error".into()),
+                        String::from(curr_solution.0),
                         next_solution_data.steps,
                         next_solution_data.str
                     )

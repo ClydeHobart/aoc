@@ -1,12 +1,10 @@
 use {
     crate::*,
     glam::IVec2,
-    static_assertions::const_assert_eq,
     std::{
         collections::HashMap,
         fmt::{Debug, Formatter, Result as FmtResult},
         iter::Peekable,
-        mem::{size_of, transmute},
         ops::Range,
         str::Split,
     },
@@ -26,20 +24,10 @@ impl ElfCell {
     const ELF_U8: u8 = Self::Elf as u8;
 }
 
-#[derive(Clone)]
-struct IntermediateElfGrid(Grid2D<ElfCell>);
+// SAFETY: Trivial
+unsafe impl IsValidAscii for ElfCell {}
 
-impl From<IntermediateElfGrid> for Grid2DString {
-    fn from(intermediate: IntermediateElfGrid) -> Self {
-        const_assert_eq!(size_of::<ElfCell>(), size_of::<u8>());
-        const_assert_eq!(size_of::<IntermediateElfGrid>(), size_of::<Grid2DString>());
-
-        // SAFETY: Currently, both `IntermediateElfGrid` and `Grid2DString` are just new-type
-        // pattern structs around `Grid2D` structs of 1-Byte-sized elements. The const asserts above
-        // will hopefully catch any issues, should that not be the case at some point
-        unsafe { transmute(intermediate) }
-    }
-}
+type IntermediateElfGrid = Grid2D<ElfCell>;
 
 type Proposals = HashMap<IVec2, IVec2>;
 type Blocks = [u64; 3_usize];
@@ -143,15 +131,15 @@ impl ElfGrid {
         // Compute the intermediate min and max. These are likely just `IVec2::ZERO` and
         // `intermediate.0.max_dimensions()`, but there's no imposed restriction for that
         let (im_min, im_max): (IVec2, IVec2) =
-            CellIter2D::until_boundary(&intermediate.0, IVec2::ZERO, Direction::South)
+            CellIter2D::until_boundary(&intermediate, IVec2::ZERO, Direction::South)
                 .map(|row_iter| {
-                    CellIter2D::until_boundary(&intermediate.0, row_iter, Direction::East)
+                    CellIter2D::until_boundary(&intermediate, row_iter, Direction::East)
                 })
                 .flatten()
                 .fold(
                     (i32::MAX * IVec2::ONE, i32::MIN * IVec2::ONE),
                     |(min, max), pos| {
-                        if *intermediate.0.get(pos).unwrap() == ElfCell::Elf {
+                        if *intermediate.get(pos).unwrap() == ElfCell::Elf {
                             (min.min(pos), max.max(pos))
                         } else {
                             (min, max)
@@ -185,11 +173,11 @@ impl ElfGrid {
             candidates,
         };
 
-        for pos in CellIter2D::until_boundary(&intermediate.0, IVec2::ZERO, Direction::South)
-            .map(|row_iter| CellIter2D::until_boundary(&intermediate.0, row_iter, Direction::East))
+        for pos in CellIter2D::until_boundary(&intermediate, IVec2::ZERO, Direction::South)
+            .map(|row_iter| CellIter2D::until_boundary(&intermediate, row_iter, Direction::East))
             .flatten()
         {
-            if *intermediate.0.get(pos).unwrap() == ElfCell::Elf {
+            if *intermediate.get(pos).unwrap() == ElfCell::Elf {
                 elf_grid.set_bit_for_pos(pos + offset);
             }
         }
@@ -200,11 +188,10 @@ impl ElfGrid {
     fn to_intermediate(&self) -> IntermediateElfGrid {
         let im_dimensions: IVec2 = self.max - self.min + IVec2::ONE;
 
-        let mut intermediate: IntermediateElfGrid =
-            IntermediateElfGrid(Grid2D::default(im_dimensions));
+        let mut intermediate: IntermediateElfGrid = IntermediateElfGrid::default(im_dimensions);
 
         for elf_pos in self.iter_elves() {
-            *intermediate.0.get_mut(elf_pos - self.min).unwrap() = ElfCell::Elf;
+            *intermediate.get_mut(elf_pos - self.min).unwrap() = ElfCell::Elf;
         }
 
         intermediate
@@ -233,8 +220,8 @@ impl ElfGrid {
             .flatten()
     }
 
-    fn try_as_string(&self) -> Grid2DStringResult {
-        Grid2DString::from(self.to_intermediate()).try_as_string()
+    fn as_string(&self) -> String {
+        self.to_intermediate().into()
     }
 
     fn empty_ground_tiles(&self) -> usize {
@@ -448,12 +435,7 @@ impl ElfGrid {
 
 impl Debug for ElfGrid {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let result: Grid2DStringResult = Grid2DString::from(self.to_intermediate()).try_as_string();
-
-        match result {
-            Ok(string) => f.write_fmt(format_args!("\n{string}")),
-            Err(err) => f.write_fmt(format_args!("{err:#?}")),
-        }
+        f.write_fmt(format_args!("\n{}", self.as_string()))
     }
 }
 
@@ -506,9 +488,9 @@ impl TryFrom<&str> for ElfGrid {
                 }
 
                 let mut intermediate: IntermediateElfGrid =
-                    IntermediateElfGrid(Grid2D::default(IVec2::new(width as i32, height as i32)));
+                    IntermediateElfGrid::default(IVec2::new(width as i32, height as i32));
 
-                intermediate.0.cells_mut().copy_from_slice(&elf_cells);
+                intermediate.cells_mut().copy_from_slice(&elf_cells);
 
                 Ok(Self::from_intermediate(&intermediate))
             }
@@ -524,15 +506,15 @@ impl Solution {
     fn empty_ground_tiles_after_rounds(
         &self,
         rounds: usize,
-        try_as_string: bool,
-    ) -> (usize, Option<Grid2DStringResult>) {
+        as_string: bool,
+    ) -> (usize, Option<String>) {
         self.perform_elf_grid_operation_and_get_optional_string(
             |elf_grid| elf_grid.run(rounds).empty_ground_tiles(),
-            try_as_string,
+            as_string,
         )
     }
 
-    fn rounds_until_static(&self, try_as_string: bool) -> (usize, Option<Grid2DStringResult>) {
+    fn rounds_until_static(&self, try_as_string: bool) -> (usize, Option<String>) {
         self.perform_elf_grid_operation_and_get_optional_string(
             |elf_grid| elf_grid.run_until_static(),
             try_as_string,
@@ -542,12 +524,12 @@ impl Solution {
     fn perform_elf_grid_operation_and_get_optional_string<F: Fn(&mut ElfGrid) -> usize>(
         &self,
         f: F,
-        try_as_string: bool,
-    ) -> (usize, Option<Grid2DStringResult>) {
+        as_string: bool,
+    ) -> (usize, Option<String>) {
         let mut elf_grid: ElfGrid = self.0.clone();
         let value: usize = f(&mut elf_grid);
-        let string: Option<Grid2DStringResult> = if try_as_string {
-            Some(elf_grid.try_as_string())
+        let string: Option<String> = if as_string {
+            Some(elf_grid.as_string())
         } else {
             None
         };
@@ -558,23 +540,23 @@ impl Solution {
 
 impl RunQuestions for Solution {
     fn q1_internal(&mut self, args: &QuestionArgs) {
-        let (empty_ground_tiles_after_rounds, string): (usize, Option<Grid2DStringResult>) =
+        let (empty_ground_tiles_after_rounds, string): (usize, Option<String>) =
             self.empty_ground_tiles_after_rounds(10_usize, args.verbose);
 
         dbg!(empty_ground_tiles_after_rounds);
 
-        if let Some(Ok(string)) = string {
+        if let Some(string) = string {
             println!("{string}");
         }
     }
 
     fn q2_internal(&mut self, args: &QuestionArgs) {
-        let (rounds_until_static, string): (usize, Option<Grid2DStringResult>) =
+        let (rounds_until_static, string): (usize, Option<String>) =
             self.rounds_until_static(args.verbose);
 
         dbg!(rounds_until_static);
 
-        if let Some(Ok(string)) = string {
+        if let Some(string) = string {
             println!("{string}");
         }
     }
@@ -655,8 +637,8 @@ mod tests {
             // Skip the last bit, since that's only for the output form
             ElfGrid::try_from(&ELF_GRID_STR[..ELF_GRID_STR.len() - 1_usize])
                 .as_ref()
-                .map(ElfGrid::try_as_string),
-            Ok(Ok(ELF_GRID_STR.into()))
+                .map(ElfGrid::as_string),
+            Ok(ELF_GRID_STR.into())
         );
     }
 
@@ -665,27 +647,27 @@ mod tests {
         let mut elf_grid_small: ElfGrid = elf_grid_small().clone();
 
         assert_eq!(
-            elf_grid_small.run(1_usize).try_as_string(),
-            Ok(ELF_GRID_SMALL_1_ROUND.into())
+            elf_grid_small.run(1_usize).as_string(),
+            ELF_GRID_SMALL_1_ROUND.to_owned()
         );
         assert_eq!(
-            elf_grid_small.run(1_usize).try_as_string(),
-            Ok(ELF_GRID_SMALL_2_ROUNDS.into())
+            elf_grid_small.run(1_usize).as_string(),
+            ELF_GRID_SMALL_2_ROUNDS.to_owned()
         );
         assert_eq!(
-            elf_grid_small.run(1_usize).try_as_string(),
-            Ok(ELF_GRID_SMALL_3_ROUNDS.into())
+            elf_grid_small.run(1_usize).as_string(),
+            ELF_GRID_SMALL_3_ROUNDS.to_owned()
         );
 
         let mut elf_grid: ElfGrid = elf_grid().clone();
 
         assert_eq!(
-            elf_grid.run(10_usize).try_as_string(),
-            Ok(ELF_GRID_10_ROUNDS.into())
+            elf_grid.run(10_usize).as_string(),
+            ELF_GRID_10_ROUNDS.to_owned()
         );
         assert_eq!(
-            elf_grid.run(10_usize).try_as_string(),
-            Ok(ELF_GRID_20_ROUNDS.into())
+            elf_grid.run(10_usize).as_string(),
+            ELF_GRID_20_ROUNDS.to_owned()
         );
     }
 

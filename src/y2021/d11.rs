@@ -1,9 +1,4 @@
-use {
-    crate::*,
-    bitvec::prelude::*,
-    glam::IVec2,
-    std::mem::{transmute, MaybeUninit},
-};
+use {crate::*, bitvec::prelude::*, glam::IVec2, std::mem::MaybeUninit};
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -12,6 +7,12 @@ pub struct CharOutOfBounds(char);
 #[derive(Clone, Copy, Default)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 struct Light(u8);
+
+// SAFETY:
+//
+// `Light` can only be constructed by conversion from a `char`, which only accepts the numeric digit
+// characters.
+unsafe impl IsValidAscii for Light {}
 
 impl TryFrom<char> for Light {
     type Error = CharOutOfBounds;
@@ -153,11 +154,7 @@ impl Solution {
     }
 
     fn string(&self) -> String {
-        // SAFETY: `Grid2DString` is just a new-type for `Grid2D<u8>`, and `Self` is just a new-type
-        // for `Grid2D<Height>`, where `Height` is just a new-type for `u8`.
-        unsafe { transmute::<&Self, &Grid2DString>(self) }
-            .try_as_string()
-            .unwrap_or_default()
+        self.0.clone().into()
     }
 
     fn run_100_steps(&self) -> (usize, String) {

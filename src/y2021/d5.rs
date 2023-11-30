@@ -9,8 +9,10 @@ use {
         sequence::{separated_pair, terminated},
         Err, Parser,
     },
+    static_assertions::const_assert_eq,
     std::{
         iter::{IntoIterator, Iterator},
+        mem::{align_of, size_of, transmute},
         ops::Range,
         str::FromStr,
     },
@@ -143,7 +145,13 @@ impl Solution {
         true
     }
 
-    fn try_grid_to_string(mut grid: Grid2D<u8>) -> Grid2DStringResult {
+    fn grid_to_string(mut grid: Grid2D<u8>) -> String {
+        struct Cell(u8);
+
+        // SAFETY: The size constraint is trivial, and the values are constructed to be in the set
+        // `{ b'.', b'1'..=b'9', b'A'..=b'E' }`
+        unsafe impl IsValidAscii for Cell {}
+
         for cell in grid.cells_mut() {
             let cell_val: u8 = *cell;
 
@@ -157,7 +165,11 @@ impl Solution {
             };
         }
 
-        Grid2DString(grid).try_as_string()
+        const_assert_eq!(size_of::<u8>(), size_of::<Cell>());
+        const_assert_eq!(align_of::<u8>(), align_of::<Cell>());
+
+        // SAFETY: Guaranteed by the const asserts above
+        unsafe { transmute::<Grid2D<u8>, Grid2D<Cell>>(grid) }.into()
     }
 
     fn compute_horizontal_and_vertical_overlaps(&self) -> usize {
@@ -165,8 +177,8 @@ impl Solution {
             .0
     }
 
-    fn try_horizontal_and_vertical_grid(&self) -> Grid2DStringResult {
-        Self::try_grid_to_string(
+    fn horizontal_and_vertical_grid(&self) -> String {
+        Self::grid_to_string(
             self.compute_overlaps_and_grid(Self::filter_horizontal_and_vertical_overlaps)
                 .1,
         )
@@ -176,8 +188,8 @@ impl Solution {
         self.compute_overlaps_and_grid(Self::filter_all).0
     }
 
-    fn try_all_grid(&self) -> Grid2DStringResult {
-        Self::try_grid_to_string(self.compute_overlaps_and_grid(Self::filter_all).1)
+    fn all_grid(&self) -> String {
+        Self::grid_to_string(self.compute_overlaps_and_grid(Self::filter_all).1)
     }
 }
 
@@ -186,12 +198,7 @@ impl RunQuestions for Solution {
         dbg!(self.compute_horizontal_and_vertical_overlaps());
 
         if args.verbose {
-            match self.try_horizontal_and_vertical_grid() {
-                Ok(string) => println!("{string}"),
-                Err(err) => eprintln!(
-                    "Failed to convert grid with horizontal and vertical lines.\nError:\n{err:#?}"
-                ),
-            }
+            println!("{}", self.horizontal_and_vertical_grid());
         }
     }
 
@@ -199,10 +206,7 @@ impl RunQuestions for Solution {
         dbg!(self.compute_all_overlaps());
 
         if args.verbose {
-            match self.try_all_grid() {
-                Ok(string) => println!("{string}"),
-                Err(err) => eprintln!("Failed to convert grid with all lines.\nError:\n{err:#?}"),
-            }
+            println!("{}", self.all_grid());
         }
     }
 }
@@ -306,10 +310,7 @@ mod tests {
             "222111....\n",
         );
 
-        assert_eq!(
-            solution().try_horizontal_and_vertical_grid(),
-            Ok(GRID.into())
-        );
+        assert_eq!(solution().horizontal_and_vertical_grid(), GRID.to_owned());
     }
 
     #[test]
@@ -332,6 +333,6 @@ mod tests {
             "222111....\n",
         );
 
-        assert_eq!(solution().try_all_grid(), Ok(GRID.into()));
+        assert_eq!(solution().all_grid(), GRID.to_owned());
     }
 }

@@ -433,9 +433,7 @@ where
     }
 
     fn as_string_safe(&self) -> String {
-        Grid2DString::from(self.as_cell_grid())
-            .try_as_string()
-            .unwrap_or_else(|_| "[invalid]".into())
+        self.as_cell_grid().into()
     }
 
     fn present_cell_indices(self) -> <Self as ParamsTrait>::CellIndexBitArray {

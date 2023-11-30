@@ -11,7 +11,7 @@ use {
         sequence::{delimited, preceded, separated_pair, terminated},
         Err, IResult,
     },
-    std::{cmp::Ordering, collections::VecDeque, mem::transmute, str::FromStr},
+    std::{cmp::Ordering, collections::VecDeque, str::FromStr},
 };
 
 #[derive(Clone, Copy)]
@@ -54,11 +54,15 @@ impl Fold {
     }
 }
 
+#[derive(Clone)]
 #[repr(u8)]
 enum DotCell {
     Occupied = b'#',
     Vacant = b'.',
 }
+
+// SAFETY: Trivial
+unsafe impl IsValidAscii for DotCell {}
 
 impl Default for DotCell {
     fn default() -> Self {
@@ -75,11 +79,7 @@ struct DotGrid {
 
 impl DotGrid {
     fn string(&self) -> String {
-        // SAFETY: `Grid2D<DotCell>` is a `Grid2D` of a `u8`-sized type, and `Grid2DString` is a
-        // new-type of a `Grid2D<u8>`.
-        unsafe { transmute::<&Grid2D<DotCell>, &Grid2DString>(&self.grid) }
-            .try_as_string()
-            .unwrap_or_default()
+        self.grid.clone().into()
     }
 }
 

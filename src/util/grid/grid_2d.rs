@@ -12,11 +12,11 @@ use {
         Err,
     },
     std::{
-        fmt::{Debug, DebugList, Error as FmtError, Formatter, Result as FmtResult, Write},
+        fmt::{Debug, DebugList, Formatter, Result as FmtResult, Write},
         iter::Peekable,
         mem::transmute,
         ops::{Range, RangeInclusive},
-        str::{from_utf8, from_utf8_unchecked, Lines, Utf8Error},
+        str::{from_utf8, from_utf8_unchecked, Lines},
     },
     strum::IntoEnumIterator,
 };
@@ -208,7 +208,7 @@ impl<T> Grid2D<T> {
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
+    pub fn area(&self) -> usize {
         (self.dimensions.x * self.dimensions.y) as usize
     }
 
@@ -265,7 +265,7 @@ impl<T> Grid2D<T> {
 
     pub fn resize_rows_with<F: FnMut() -> T>(&mut self, new_row_len: usize, f: F) {
         self.dimensions.y = new_row_len as i32;
-        self.cells.resize_with(self.len(), f);
+        self.cells.resize_with(self.area(), f);
     }
 
     pub fn resize(&mut self, dimensions: IVec2, value: T)
@@ -275,12 +275,12 @@ impl<T> Grid2D<T> {
         if self.dimensions.x == dimensions.x {
             self.resize_rows(dimensions.y as usize, value)
         } else {
-            let old_len: usize = self.len();
+            let old_area: usize = self.area();
 
             self.dimensions = dimensions;
-            self.cells.resize(self.len(), value.clone());
+            self.cells.resize(self.area(), value.clone());
 
-            let old_len: usize = old_len.min(self.len());
+            let old_len: usize = old_area.min(self.area());
 
             self.cells[..old_len].fill(value);
         }
@@ -328,34 +328,8 @@ impl<T: Default> Grid2D<T> {
 }
 
 impl<T: Parse> Parse for Grid2D<T> {
-    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
+    fn parse(input: &str) -> IResult<&str, Self> {
         let mut width: Option<usize> = None;
-        // let failure = || -> Err<NomError<&'i str>> {
-        //     Err::Failure(NomError::new(input, NomErrorKind::ManyMN))
-        // };
-
-        // let (input, cells): (&str, Vec<T>) = many0(map_parser(
-        //     map(tuple((T::parse, opt(line_ending))), Some),
-        //     |some_cell_opt_line_ending: Option<(T, Option<&str>)>| {
-        //         let (cell, opt_line_ending): (T, Option<_>) = some_cell_opt_line_ending.unwrap();
-
-        //         col += 1_i32;
-
-        //         if opt_line_ending.is_some() {
-        //             match cols {
-        //                 Some(cols) if cols != col => Err(failure()),
-        //                 _ => {
-        //                     cols = Some(col);
-        //                     col = 0_i32;
-
-        //                     Ok((None, cell))
-        //                 }
-        //             }
-        //         } else {
-        //             Ok((None, cell))
-        //         }
-        //     },
-        // ))(input)?;
         let mut cells: Vec<T> = Vec::new();
         let (input, _) = many0_count(map_res(
             tuple((T::parse, opt(line_ending))),
@@ -550,58 +524,43 @@ impl TryFrom<RangeInclusive<IVec2>> for CellIter2D {
 
 /// A marker trait to indicate that a type is a single byte, and any possible value is a valid ASCII
 /// byte.
+///
+/// # Safety
+///
+/// Only implement this on a trait that meets the following criteria:
+///
+/// * `std::mem::size_of::<Self>() == 1_usize`
+/// * `std::str::from_utf8(std::mem::transmute::<[Self], [u8]>(value)).is_ok()` for any `value:
+/// [Self]`.
 pub unsafe trait IsValidAscii {}
 
-pub struct Grid2DString(pub Grid2D<u8>);
-
-impl Grid2DString {
-    pub fn grid(&self) -> &Grid2D<u8> {
-        &self.0
-    }
-
-    pub fn grid_mut(&mut self) -> &mut Grid2D<u8> {
-        &mut self.0
-    }
-}
-
-impl<T: IsValidAscii> From<Grid2D<T>> for Grid2DString {
+impl<T: IsValidAscii> From<Grid2D<T>> for String {
     fn from(value: Grid2D<T>) -> Self {
-        unsafe { transmute(value) }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Grid2DStringError {
-    Utf8Error(Utf8Error),
-    FmtError(FmtError),
-}
-
-pub type Grid2DStringResult = Result<String, Grid2DStringError>;
-
-impl Grid2DString {
-    pub fn try_as_string(&self) -> Grid2DStringResult {
-        use Grid2DStringError as Error;
-
-        let dimensions: IVec2 = self.0.dimensions;
+        let dimensions: IVec2 = value.dimensions;
         let width: usize = dimensions.x as usize;
         let height: usize = dimensions.y as usize;
-        let bytes: &[u8] = &self.0.cells;
+
+        // SAFETY: Guaranteed by `T` implementing `IsValidAscii`
+        let bytes: &[u8] = unsafe { transmute(value.cells()) };
 
         let mut string: String = String::with_capacity((width + 1_usize) * height);
 
         for y in 0_usize..height {
             let start: usize = y * width;
             let end: usize = start + width;
+            let row_str: &str = from_utf8(&bytes[start..end]).unwrap_or_else(|e| {
+                panic!("A `Grid2DString` contained an invalid UTF-8 slice: {e:?}");
+            });
 
-            write!(
-                &mut string,
-                "{}\n",
-                from_utf8(&bytes[start..end]).map_err(Error::Utf8Error)?
-            )
-            .map_err(Error::FmtError)?;
+            writeln!(&mut string, "{row_str}").unwrap_or_else(|e| {
+                panic!(
+                    "`String::write_fmt` returned an `Err`, despite both its `write_str` and 
+                    `write_char` definitions returning an `Ok`: {e:?}"
+                );
+            });
         }
 
-        Ok(string)
+        string
     }
 }
 
@@ -687,16 +646,16 @@ impl From<Pixel> for bool {
     }
 }
 
+/// SAFETY: Trivial
+unsafe impl IsValidAscii for Pixel {}
+
 impl Parse for Pixel {
-    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
+    fn parse(input: &str) -> IResult<&str, Self> {
         map(one_of(Pixel::STR), |value: char| {
             Pixel::try_from(value).unwrap()
         })(input)
     }
 }
-
-/// SAFETY: Trivial
-unsafe impl IsValidAscii for Pixel {}
 
 impl TryFrom<char> for Pixel {
     type Error = ();
