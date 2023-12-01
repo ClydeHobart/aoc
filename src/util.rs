@@ -636,7 +636,7 @@ macro_rules! define_cell {
             $(
                 const $variant_const: u8 = $variant_u8;
             )*
-            const STR: &str =
+            const STR: &'static str =
                 // SAFETY: Trivial
                 unsafe { ::std::str::from_utf8_unchecked(&[$(
                     $cell::$variant_const,

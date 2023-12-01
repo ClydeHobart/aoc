@@ -418,7 +418,7 @@ macro_rules! solution{
 
 impl Solution {
     const INIT_PROC_RANGE: Range<i32> = -50_i32..51_i32;
-    const REBOOT_STEPS_TO_ISOLATE_INIT_PROC_REGION: &[RebootStep] = &reboot_steps![
+    const REBOOT_STEPS_TO_ISOLATE_INIT_PROC_REGION: &'static [RebootStep] = &reboot_steps![
         off =>
             x=Node::GLOBAL_RANGE.start..Solution::INIT_PROC_RANGE.start,
             y=Node::GLOBAL_RANGE.start..Node::GLOBAL_RANGE.end,

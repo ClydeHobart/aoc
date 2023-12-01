@@ -619,7 +619,7 @@ type SmallPositionState = PositionState<2_usize>;
 type LargePositionState = PositionState<4_usize>;
 
 impl SmallPositionState {
-    const BURROW_STR: &str = concat!(
+    const BURROW_STR: &'static str = concat!(
         "#############",
         "#...........#",
         "###.#.#.#.###",

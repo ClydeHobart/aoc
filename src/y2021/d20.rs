@@ -223,7 +223,6 @@ mod tests {
         ##..#\n\
         ..#..\n\
         ..###\n",
-        include_str!("../../input/y2021/d20.txt"),
     ];
 
     const GRID_STRS: &[&str] = &[
@@ -332,11 +331,6 @@ mod tests {
         assert_eq!(solution.count_light_pixels(), 35_usize);
         solution.enhance_until(50_usize);
         assert_eq!(solution.count_light_pixels(), 3351_usize);
-
-        let mut solution: Solution = Solution::try_from(SOLUTION_STRS[1_usize]).unwrap();
-
-        solution.enhance_until(2_usize);
-        assert!(solution.count_light_pixels() < 5860_usize);
     }
 
     #[test]

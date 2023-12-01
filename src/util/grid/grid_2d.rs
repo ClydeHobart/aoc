@@ -615,7 +615,7 @@ pub enum Pixel {
 impl Pixel {
     pub const DARK: u8 = b'.';
     pub const LIGHT: u8 = b'#';
-    pub const STR: &str =
+    pub const STR: &'static str =
         // SAFETY: Trivial
         unsafe { from_utf8_unchecked(&[Pixel::DARK, Pixel::LIGHT]) };
 

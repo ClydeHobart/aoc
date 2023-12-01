@@ -21,7 +21,7 @@ enum RockType {
 }
 
 impl RockType {
-    const MASKS: [&[u16]; RockType::COUNT] = [
+    const MASKS: [&'static [u16]; RockType::COUNT] = [
         &[0b1111000_u16],
         &[0b10000_u16, 0b111000_u16, 0b10000_u16],
         &[0b111000_u16, 0b100000_u16, 0b100000_u16],
