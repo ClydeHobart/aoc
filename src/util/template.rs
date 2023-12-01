@@ -41,7 +41,7 @@ impl<'i> TryFrom<&'i str> for Solution {
 mod tests {
     use {super::*, std::sync::OnceLock};
 
-    const SOLUTION_STR: &str = "";
+    const SOLUTION_STR: &'static str = "";
 
     fn solution() -> &'static Solution {
         static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
