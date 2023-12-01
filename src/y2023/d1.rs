@@ -86,8 +86,6 @@ impl CalibrationValue {
                 }),
             );
 
-            // preceded(alpha0, map(f, |calibration_digit| calibration_digit.0)),
-
             let mut first_digit: Option<u8> = None;
             let mut last_digit: Option<u8> = None;
 
