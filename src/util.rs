@@ -615,6 +615,16 @@ impl<T: SmallRangeInclusiveTraits> From<SmallRangeInclusive<T>> for RangeInclusi
 
 impl<T: Copy + SmallRangeInclusiveTraits> Copy for SmallRangeInclusive<T> {}
 
+pub const fn digits(value: u32) -> usize {
+    if value == 0_u32 {
+        1_usize
+    } else {
+        value.ilog10() as usize + 1_usize
+    }
+}
+
+pub const U32_DIGITS: usize = digits(u32::MAX);
+
 #[macro_export]
 macro_rules! define_cell {
     {

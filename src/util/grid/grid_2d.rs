@@ -256,6 +256,16 @@ impl<T> Grid2D<T> {
             .map(|index: usize| &mut self.cells[index])
     }
 
+    pub fn iter_positions(&self) -> impl Iterator<Item = IVec2> {
+        let dimensions: IVec2 = self.dimensions;
+
+        CellIter2D::try_from(IVec2::ZERO..IVec2::new(0_i32, dimensions.y))
+            .unwrap()
+            .flat_map(move |pos| {
+                CellIter2D::try_from(pos..IVec2::new(dimensions.x, pos.y)).unwrap()
+            })
+    }
+
     pub fn resize_rows(&mut self, new_row_len: usize, value: T)
     where
         T: Clone,
