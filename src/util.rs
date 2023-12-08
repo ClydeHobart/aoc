@@ -625,6 +625,100 @@ pub const fn digits(value: u32) -> usize {
 
 pub const U32_DIGITS: usize = digits(u32::MAX);
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct PrimeFactor {
+    pub prime: u32,
+    pub exponent: u32,
+}
+
+fn try_get_prime_factor(value: &mut u32, divisor: u32) -> Option<PrimeFactor> {
+    let mut local_value: u32 = *value;
+    let mut exponent: u32 = 0_u32;
+
+    if local_value != 1_u32 {
+        while local_value % divisor == 0_u32 {
+            local_value /= divisor;
+            exponent += 1_u32;
+        }
+
+        *value = local_value;
+    }
+
+    if exponent != 0_u32 {
+        Some(PrimeFactor {
+            prime: divisor,
+            exponent,
+        })
+    } else {
+        None
+    }
+}
+
+/// Iterate over the prime factors of a given number.
+///
+/// This is an implementation of https://www.geeksforgeeks.org/print-all-prime-factors-of-a-given-number/
+pub fn iter_prime_factors(mut value: u32) -> impl Iterator<Item = PrimeFactor> {
+    [2_u32]
+        .into_iter()
+        .chain((3_u32..=value / 2_u32).step_by(2_usize))
+        .chain([value])
+        .filter_map(move |divisor| try_get_prime_factor(&mut value, divisor))
+}
+
+#[test]
+fn test_iter_prime_factors() {
+    assert_eq!(
+        iter_prime_factors(12_u32).collect::<Vec<PrimeFactor>>(),
+        vec![
+            PrimeFactor {
+                prime: 2_u32,
+                exponent: 2_u32
+            },
+            PrimeFactor {
+                prime: 3_u32,
+                exponent: 1_u32
+            },
+        ]
+    );
+    assert_eq!(
+        iter_prime_factors(315_u32).collect::<Vec<PrimeFactor>>(),
+        vec![
+            PrimeFactor {
+                prime: 3_u32,
+                exponent: 2_u32
+            },
+            PrimeFactor {
+                prime: 5_u32,
+                exponent: 1_u32
+            },
+            PrimeFactor {
+                prime: 7_u32,
+                exponent: 1_u32
+            },
+        ]
+    );
+    assert_eq!(
+        iter_prime_factors(41_u32).collect::<Vec<PrimeFactor>>(),
+        vec![PrimeFactor {
+            prime: 41_u32,
+            exponent: 1_u32
+        }]
+    );
+    assert_eq!(
+        iter_prime_factors(22411_u32).collect::<Vec<PrimeFactor>>(),
+        vec![
+            PrimeFactor {
+                prime: 73_u32,
+                exponent: 1_u32
+            },
+            PrimeFactor {
+                prime: 307_u32,
+                exponent: 1_u32
+            },
+        ]
+    );
+}
+
 #[macro_export]
 macro_rules! define_cell {
     {
