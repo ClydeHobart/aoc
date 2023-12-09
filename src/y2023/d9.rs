@@ -1,239 +1,199 @@
 use {
     crate::*,
+    glam::IVec2,
     nom::{
         bytes::complete::tag,
         character::complete::line_ending,
         combinator::{map, opt},
         error::Error,
-        multi::many1,
+        multi::many1_count,
         sequence::terminated,
         Err, IResult,
     },
+    std::ops::Range,
 };
 
-struct Differential {
-    values: Vec<i32>,
-    base_samples: usize,
-    rows: usize,
+#[cfg_attr(test, derive(Clone, Debug, PartialEq))]
+#[derive(Default)]
+struct History {
+    value_range: Range<u16>,
+    front_extrapolation: i32,
+    back_extrapolation: i32,
 }
 
-impl Differential {
-    fn triangle_base_samples(&self) -> usize {
-        triangle_number(self.base_samples)
-    }
+impl History {
+    const NEXT_ROW_POS_DELTA: IVec2 = IVec2::new(-1_i32, 1_i32);
 
-    fn row_len_and_start(&self, row: usize) -> (usize, usize) {
-        let row_len: usize = self.base_samples - row;
-        let start: usize = self.triangle_base_samples() - triangle_number(row_len);
+    /// Fills the grid with a (partial) pyramid of differential values until the last row is all 0.
+    /// It is assumed the first row of the grid is filled with the corresponding values for this
+    /// history.
+    ///
+    /// Returns the number of filled rows.
+    fn fill_grid(&self, grid: &mut Grid2D<i32>) -> i32 {
+        let cols: i32 = self.value_range.len() as i32;
 
-        (row_len, start)
-    }
+        let mut rows: i32 = 1_i32;
 
-    fn row_values(&self, row: usize) -> &[i32] {
-        let (row_len, start): (usize, usize) = self.row_len_and_start(row);
-        let end: usize = start + row_len;
+        for row_pos in CellIter2D::try_from(IVec2::ZERO..IVec2::Y * cols).unwrap() {
+            let mut prev_value: i32 = *grid.get(row_pos).unwrap();
+            let mut row_is_all_zero: bool = prev_value == 0_i32;
 
-        &self.values[start..end]
-    }
+            for curr_pos in CellIter2D::try_from(row_pos..row_pos + IVec2::X * (cols - row_pos.y))
+                .unwrap()
+                .skip(1_usize)
+            {
+                let curr_value: i32 = *grid.get(curr_pos).unwrap();
 
-    fn row_values_mut(&mut self, row: usize) -> &mut [i32] {
-        let (row_len, start): (usize, usize) = self.row_len_and_start(row);
-        let end: usize = start + row_len;
+                *grid.get_mut(curr_pos + Self::NEXT_ROW_POS_DELTA).unwrap() =
+                    curr_value - prev_value;
+                row_is_all_zero &= curr_value == 0_i32;
+                prev_value = curr_value;
+            }
 
-        &mut self.values[start..end]
-    }
+            if row_is_all_zero {
+                rows = row_pos.y + 1_i32;
 
-    fn increase_base_samples(&mut self, base_samples: usize) {
-        let old_base_samples: usize = self.base_samples;
-
-        assert!(base_samples >= old_base_samples);
-
-        let base_samples_delta: usize = base_samples - old_base_samples;
-
-        self.base_samples = base_samples;
-
-        self.values.resize(
-            self.triangle_base_samples() - triangle_number(base_samples - self.rows),
-            0_i32,
-        );
-
-        for row in 0_usize..self.rows {
-            let (row_len, start): (usize, usize) = self.row_len_and_start(row);
-
-            self.values[start + row_len - base_samples_delta..].rotate_right(base_samples_delta);
+                break;
+            }
         }
+
+        rows
     }
 
-    fn increase_rows(&mut self, rows: usize) {
-        let old_rows: usize = self.rows;
-
-        assert!(rows >= old_rows);
-        assert!(rows <= self.base_samples);
-
-        self.rows = rows;
-        self.values.resize(
-            self.triangle_base_samples() - triangle_number(self.base_samples - rows),
-            0_i32,
-        );
+    fn extrapolation<F: Fn(i32) -> IVec2>(
+        &self,
+        grid: &Grid2D<i32>,
+        rows: i32,
+        get_row_pos: F,
+        delta_sign: i32,
+    ) -> i32 {
+        (0_i32..rows)
+            .rev()
+            .enumerate()
+            .fold(0_i32, |prev_extrapolation, (rev_row, row)| {
+                if rev_row == 0_usize {
+                    0_i32
+                } else {
+                    *grid.get(get_row_pos(row)).unwrap() + delta_sign * prev_extrapolation
+                }
+            })
     }
 
-    fn shift_right(&mut self, cols: usize) {
-        self.increase_base_samples(self.base_samples + cols);
+    fn front_extrapolation(&self, grid: &Grid2D<i32>, rows: i32) -> i32 {
+        self.extrapolation(grid, rows, |row| IVec2::new(0_i32, row), -1_i32)
+    }
 
-        for row in 0_usize..self.rows {
-            self.row_values_mut(row).rotate_right(cols);
-        }
+    fn back_extrapolation(&self, grid: &Grid2D<i32>, rows: i32) -> i32 {
+        self.extrapolation(
+            grid,
+            rows,
+            |row| IVec2::new(self.value_range.len() as i32 - row - 1_i32, row),
+            1_i32,
+        )
+    }
+
+    fn extrapolate(&mut self, grid: &mut Grid2D<i32>) {
+        let rows: i32 = self.fill_grid(grid);
+
+        self.front_extrapolation = self.front_extrapolation(grid, rows);
+        self.back_extrapolation = self.back_extrapolation(grid, rows);
+    }
+}
+
+#[cfg_attr(test, derive(Clone, Debug, PartialEq))]
+#[derive(Default)]
+pub struct Solution {
+    histories: Vec<History>,
+    values: Vec<i32>,
+}
+
+impl Solution {
+    fn parse_internal<'i>(input: &'i str) -> IResult<&'i str, Self> {
+        let mut solution: Self = Self::default();
+
+        let input: &str = many1_count(|input: &'i str| {
+            let start: u16 = solution.values.len() as u16;
+
+            let input: &str = terminated(
+                many1_count(|input: &'i str| {
+                    map(terminated(parse_integer::<i32>, opt(tag(" "))), |value| {
+                        solution.values.push(value);
+                    })(input)
+                }),
+                opt(line_ending),
+            )(input)?
+            .0;
+
+            let end: u16 = solution.values.len() as u16;
+
+            solution.histories.push(History {
+                value_range: start..end,
+                ..History::default()
+            });
+
+            Ok((input, ()))
+        })(input)?
+        .0;
+
+        Ok((input, solution))
     }
 
     fn extrapolate(&mut self) {
-        let mut scratch_row: Vec<i32> = vec![0_i32; self.base_samples];
+        let max_cols: i32 = self
+            .histories
+            .iter()
+            .map(|history| history.value_range.len())
+            .max()
+            .unwrap_or_default() as i32;
 
-        self.increase_base_samples(self.base_samples + 1_usize);
+        let mut grid: Grid2D<i32> = Grid2D::default(IVec2::new(max_cols, max_cols));
 
-        let mut row: usize = 0_usize;
+        for history in self.histories.iter_mut() {
+            let values: &[i32] = &self.values[history.value_range.as_range_usize()];
 
-        loop {
-            let curr_row_values: &[i32] = self.row_values(row);
-
-            // Subtract 1 since we just increased the base samples: the last right column is empty.
-            let curr_row_values_len: usize = curr_row_values.len() - 1_usize;
-            let mut curr_row_is_all_zero: bool = curr_row_values[0_usize] == 0_i32;
-
-            for (curr_values_pair, next_value) in curr_row_values[..curr_row_values_len]
-                .windows(2_usize)
-                .zip(scratch_row.iter_mut())
-            {
-                let left_value: i32 = curr_values_pair[0_usize];
-                let right_value: i32 = curr_values_pair[1_usize];
-
-                *next_value = right_value - left_value;
-                curr_row_is_all_zero &= right_value == 0_i32;
-            }
-
-            if curr_row_is_all_zero {
-                break;
-            }
-
-            row += 1_usize;
-
-            if row == self.rows {
-                self.increase_rows(row + 1_usize);
-            }
-
-            let mut next_row_values: &mut [i32] = self.row_values_mut(row);
-
-            next_row_values = &mut next_row_values[..curr_row_values_len - 1_usize];
-            next_row_values.copy_from_slice(&scratch_row[..next_row_values.len()]);
-
-            assert!(row + 1_usize < self.base_samples);
-        }
-
-        let mut prev_extrapolated_value: i32 = 0_i32;
-
-        for (rev_row, row) in (0_usize..=row).rev().enumerate() {
-            let row_values: &mut [i32] = self.row_values_mut(row);
-            let extrapolated_value: i32 = if rev_row == 0_usize {
-                0_i32
-            } else {
-                row_values[row_values.len() - 2_usize] + prev_extrapolated_value
-            };
-
-            *row_values.last_mut().unwrap() = extrapolated_value;
-            prev_extrapolated_value = extrapolated_value;
+            grid.cells_mut()[..values.len()].copy_from_slice(values);
+            history.extrapolate(&mut grid);
         }
     }
 
-    fn rev_extrapolate(&mut self) {
-        self.extrapolate();
-        self.shift_right(1_usize);
-
-        let mut prev_extrapolated_value: i32 = 0_i32;
-
-        for (rev_row, row) in (0_usize..self.rows).rev().enumerate() {
-            let row_values: &mut [i32] = self.row_values_mut(row);
-            let extrapolated_value: i32 = if rev_row == 0_usize {
-                0_i32
-            } else {
-                row_values[1_usize] - prev_extrapolated_value
-            };
-
-            *row_values.first_mut().unwrap() = extrapolated_value;
-            prev_extrapolated_value = extrapolated_value;
-        }
-    }
-}
-
-impl From<&History> for Differential {
-    fn from(value: &History) -> Self {
-        Self {
-            values: value.0.clone(),
-            base_samples: value.0.len(),
-            rows: 1_usize,
-        }
-    }
-}
-
-#[cfg_attr(test, derive(Debug, PartialEq))]
-struct History(Vec<i32>);
-
-impl History {
-    fn extrapolate(&self) -> i32 {
-        let mut differential: Differential = self.into();
-
-        differential.extrapolate();
-
-        *differential.row_values(0_usize).last().unwrap()
+    fn iter_back_extrapolations(&self) -> impl Iterator<Item = i32> + '_ {
+        self.histories
+            .iter()
+            .map(|history| history.back_extrapolation)
     }
 
-    fn rev_extrapolate(&self) -> i32 {
-        let mut differential: Differential = self.into();
-
-        differential.rev_extrapolate();
-
-        differential.values[0_usize]
-    }
-}
-
-impl Parse for History {
-    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
-        map(many1(terminated(parse_integer::<i32>, opt(tag(" ")))), Self)(input)
-    }
-}
-
-#[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct Solution(Vec<History>);
-
-impl Solution {
-    fn iter_extrapolations(&self) -> impl Iterator<Item = i32> + '_ {
-        self.0.iter().map(|history| history.extrapolate())
+    fn sum_back_extrapolations(&self) -> i32 {
+        self.iter_back_extrapolations().sum()
     }
 
-    fn sum_extrapolations(&self) -> i32 {
-        self.iter_extrapolations().sum()
+    fn iter_front_extrapolations(&self) -> impl Iterator<Item = i32> + '_ {
+        self.histories
+            .iter()
+            .map(|history| history.front_extrapolation)
     }
 
-    fn iter_rev_extrapolations(&self) -> impl Iterator<Item = i32> + '_ {
-        self.0.iter().map(|history| history.rev_extrapolate())
-    }
-
-    fn sum_rev_extrapolations(&self) -> i32 {
-        self.iter_rev_extrapolations().sum()
+    fn sum_front_extrapolations(&self) -> i32 {
+        self.iter_front_extrapolations().sum()
     }
 }
 
 impl Parse for Solution {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
-        map(many1(terminated(History::parse, opt(line_ending))), Self)(input)
+        map(Self::parse_internal, |mut solution| {
+            solution.extrapolate();
+
+            solution
+        })(input)
     }
 }
 
 impl RunQuestions for Solution {
     fn q1_internal(&mut self, _args: &QuestionArgs) {
-        dbg!(self.sum_extrapolations());
+        dbg!(self.sum_back_extrapolations());
     }
 
     fn q2_internal(&mut self, _args: &QuestionArgs) {
-        dbg!(self.sum_rev_extrapolations());
+        dbg!(self.sum_front_extrapolations());
     }
 }
 
@@ -257,24 +217,45 @@ mod tests {
     fn solution() -> &'static Solution {
         static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
 
-        ONCE_LOCK.get_or_init(|| {
-            Solution(vec![
-                History(vec![0, 3, 6, 9, 12, 15]),
-                History(vec![1, 3, 6, 10, 15, 21]),
-                History(vec![10, 13, 16, 21, 30, 45]),
-            ])
+        ONCE_LOCK.get_or_init(|| Solution {
+            histories: vec![
+                History {
+                    value_range: 0_u16..6_u16,
+                    ..History::default()
+                },
+                History {
+                    value_range: 6_u16..12_u16,
+                    ..History::default()
+                },
+                History {
+                    value_range: 12_u16..18_u16,
+                    ..History::default()
+                },
+            ],
+            values: vec![
+                0, 3, 6, 9, 12, 15, 1, 3, 6, 10, 15, 21, 10, 13, 16, 21, 30, 45,
+            ],
         })
     }
 
     #[test]
-    fn test_try_from_str() {
-        assert_eq!(Solution::try_from(SOLUTION_STR).as_ref(), Ok(solution()));
+    fn test_parse_internal() {
+        assert_eq!(
+            Solution::parse_internal(SOLUTION_STR)
+                .map(|(_, solution)| solution)
+                .as_ref(),
+            Ok(solution())
+        );
     }
 
     #[test]
-    fn test_history_extrapolate() {
-        for (real_extrapolation, expected_extrapolation) in solution()
-            .iter_extrapolations()
+    fn test_iter_back_extrapolations() {
+        let mut solution: Solution = solution().clone();
+
+        solution.extrapolate();
+
+        for (real_extrapolation, expected_extrapolation) in solution
+            .iter_back_extrapolations()
             .zip([18_i32, 28_i32, 68_i32])
         {
             assert_eq!(real_extrapolation, expected_extrapolation);
@@ -282,9 +263,13 @@ mod tests {
     }
 
     #[test]
-    fn test_history_rev_extrapolate() {
-        for (real_extrapolation, expected_extrapolation) in solution()
-            .iter_rev_extrapolations()
+    fn test_iter_front_extrapolations() {
+        let mut solution: Solution = solution().clone();
+
+        solution.extrapolate();
+
+        for (real_extrapolation, expected_extrapolation) in solution
+            .iter_front_extrapolations()
             .zip([-3_i32, 0_i32, 5_i32])
         {
             assert_eq!(real_extrapolation, expected_extrapolation);
