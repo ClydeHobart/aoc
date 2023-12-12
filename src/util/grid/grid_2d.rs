@@ -679,6 +679,12 @@ impl TryFrom<char> for Pixel {
     }
 }
 
+pub fn manhattan_distance_2d(a: IVec2, b: IVec2) -> i32 {
+    let abs: IVec2 = (a - b).abs();
+
+    abs.x + abs.y
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

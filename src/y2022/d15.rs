@@ -71,15 +71,9 @@ pub enum ParseSensorReadingError<'s> {
     ExtraTokenFound(&'s str),
 }
 
-fn manhattan_distance(a: IVec2, b: IVec2) -> i32 {
-    let abs: IVec2 = (a - b).abs();
-
-    abs.x + abs.y
-}
-
 impl SensorReading {
     fn new(sensor: IVec2, beacon: IVec2) -> Self {
-        let manhattan_distance: i32 = manhattan_distance(sensor, beacon);
+        let manhattan_distance: i32 = manhattan_distance_2d(sensor, beacon);
         let mut manhattan_distance_spoke: IVec2 = manhattan_distance * IVec2::X;
         let mut corners: Corners = Default::default();
 
@@ -132,7 +126,7 @@ impl SensorReading {
 
     #[inline(always)]
     fn contains(&self, pos: IVec2) -> bool {
-        manhattan_distance(self.sensor, pos) <= self.manhattan_distance
+        manhattan_distance_2d(self.sensor, pos) <= self.manhattan_distance
     }
 }
 
