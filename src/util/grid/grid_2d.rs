@@ -4,10 +4,10 @@ use {
     super::*,
     glam::{BVec2, IVec2},
     nom::{
-        character::complete::{line_ending, one_of},
-        combinator::{map, opt},
+        character::complete::line_ending,
+        combinator::opt,
         error::{Error as NomError, ErrorKind as NomErrorKind},
-        multi::many0_count,
+        multi::many1_count,
         sequence::tuple,
         Err,
     },
@@ -16,7 +16,7 @@ use {
         iter::Peekable,
         mem::transmute,
         ops::{Range, RangeInclusive},
-        str::{from_utf8, from_utf8_unchecked, Lines},
+        str::{from_utf8, Lines},
     },
     strum::IntoEnumIterator,
 };
@@ -341,7 +341,7 @@ impl<T: Parse> Parse for Grid2D<T> {
     fn parse(input: &str) -> IResult<&str, Self> {
         let mut width: Option<usize> = None;
         let mut cells: Vec<T> = Vec::new();
-        let (input, _) = many0_count(map_res(
+        let (input, _) = many1_count(map_res(
             tuple((T::parse, opt(line_ending))),
             |(cell, opt_line_ending)| -> Result<(), ()> {
                 cells.push(cell);
@@ -612,70 +612,6 @@ pub trait GridVisitor: Default + Sized {
         }
 
         new_grid
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[repr(u8)]
-pub enum Pixel {
-    Dark = Pixel::DARK,
-    Light = Pixel::LIGHT,
-}
-
-impl Pixel {
-    pub const DARK: u8 = b'.';
-    pub const LIGHT: u8 = b'#';
-    pub const STR: &'static str =
-        // SAFETY: Trivial
-        unsafe { from_utf8_unchecked(&[Pixel::DARK, Pixel::LIGHT]) };
-
-    pub fn is_light(self) -> bool {
-        matches!(self, Self::Light)
-    }
-}
-
-impl Default for Pixel {
-    fn default() -> Self {
-        Self::Dark
-    }
-}
-
-impl From<bool> for Pixel {
-    fn from(value: bool) -> Self {
-        if value {
-            Self::Light
-        } else {
-            Self::Dark
-        }
-    }
-}
-
-impl From<Pixel> for bool {
-    fn from(value: Pixel) -> Self {
-        value.is_light()
-    }
-}
-
-/// SAFETY: Trivial
-unsafe impl IsValidAscii for Pixel {}
-
-impl Parse for Pixel {
-    fn parse(input: &str) -> IResult<&str, Self> {
-        map(one_of(Pixel::STR), |value: char| {
-            Pixel::try_from(value).unwrap()
-        })(input)
-    }
-}
-
-impl TryFrom<char> for Pixel {
-    type Error = ();
-
-    fn try_from(value: char) -> Result<Self, Self::Error> {
-        match value as u8 {
-            Self::DARK => Ok(Self::Dark),
-            Self::LIGHT => Ok(Self::Light),
-            _ => Err(()),
-        }
     }
 }
 
