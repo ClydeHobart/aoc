@@ -48,7 +48,7 @@ mod direction {
     }
 
     define_direction! {
-        #[derive(Copy, Clone, Debug, EnumCount, EnumIter, PartialEq)]
+        #[derive(Copy, Clone, Debug, EnumCount, EnumIter, Eq, Hash, PartialEq)]
         #[repr(u8)]
         pub enum Direction {
             North,
@@ -129,6 +129,48 @@ mod direction {
                 .position(|vec| *vec == value)
                 .map(|index| (index as u8).into())
                 .ok_or(())
+        }
+    }
+
+    impl TryFrom<Range<IVec2>> for Direction {
+        type Error = CellIterFromRangeError;
+
+        fn try_from(Range { start, end }: Range<IVec2>) -> Result<Self, Self::Error> {
+            use CellIterFromRangeError::*;
+
+            let delta: IVec2 = end - start;
+
+            if delta == IVec2::ZERO {
+                Err(PositionsIdentical)
+            } else if delta.x != 0_i32 && delta.y != 0_i32 {
+                Err(PositionsNotAligned)
+            } else {
+                let abs: IVec2 = delta.abs();
+
+                Ok((delta / (abs.x + abs.y)).try_into().unwrap())
+            }
+        }
+    }
+
+    impl TryFrom<RangeInclusive<IVec2>> for Direction {
+        type Error = CellIterFromRangeError;
+
+        fn try_from(range_inclusive: RangeInclusive<IVec2>) -> Result<Self, Self::Error> {
+            use CellIterFromRangeError::*;
+
+            let curr: IVec2 = *range_inclusive.start();
+            let end: IVec2 = *range_inclusive.end();
+            let delta: IVec2 = end - curr;
+
+            if delta == IVec2::ZERO {
+                Err(PositionsIdentical)
+            } else if delta.x != 0_i32 && delta.y != 0_i32 {
+                Err(PositionsNotAligned)
+            } else {
+                let abs: IVec2 = delta.abs();
+
+                Ok((delta / (abs.x + abs.y)).try_into().unwrap())
+            }
         }
     }
 }
@@ -483,25 +525,11 @@ impl Iterator for CellIter2D {
 impl TryFrom<Range<IVec2>> for CellIter2D {
     type Error = CellIterFromRangeError;
 
-    fn try_from(Range { start, end }: Range<IVec2>) -> Result<Self, Self::Error> {
-        use CellIterFromRangeError::*;
+    fn try_from(range: Range<IVec2>) -> Result<Self, Self::Error> {
+        let curr: IVec2 = range.start;
+        let end: IVec2 = range.end;
 
-        let delta: IVec2 = end - start;
-
-        if delta == IVec2::ZERO {
-            Err(PositionsIdentical)
-        } else if delta.x != 0_i32 && delta.y != 0_i32 {
-            Err(PositionsNotAligned)
-        } else {
-            let abs: IVec2 = delta.abs();
-            let dir: Direction = (delta / (abs.x + abs.y)).try_into().unwrap();
-
-            Ok(Self {
-                curr: start,
-                end,
-                dir,
-            })
-        }
+        Direction::try_from(range).map(|dir| Self { curr, end, dir })
     }
 }
 
@@ -509,26 +537,14 @@ impl TryFrom<RangeInclusive<IVec2>> for CellIter2D {
     type Error = CellIterFromRangeError;
 
     fn try_from(range_inclusive: RangeInclusive<IVec2>) -> Result<Self, Self::Error> {
-        use CellIterFromRangeError::*;
-
         let curr: IVec2 = *range_inclusive.start();
         let end: IVec2 = *range_inclusive.end();
-        let delta: IVec2 = end - curr;
 
-        if delta == IVec2::ZERO {
-            Err(PositionsIdentical)
-        } else if delta.x != 0_i32 && delta.y != 0_i32 {
-            Err(PositionsNotAligned)
-        } else {
-            let abs: IVec2 = delta.abs();
-            let dir: Direction = (delta / (abs.x + abs.y)).try_into().unwrap();
-
-            Ok(Self {
-                curr,
-                end: end + dir.vec(),
-                dir,
-            })
-        }
+        Direction::try_from(range_inclusive).map(|dir| Self {
+            curr,
+            end: end + dir.vec(),
+            dir,
+        })
     }
 }
 
