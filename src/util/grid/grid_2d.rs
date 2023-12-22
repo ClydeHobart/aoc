@@ -488,21 +488,40 @@ pub struct CellIter2D {
 }
 
 impl CellIter2D {
-    pub fn corner<T>(grid: &Grid2D<T>, dir: Direction) -> Self {
+    pub fn corner_for_dimensions(dimensions: IVec2, dir: Direction) -> Self {
         let dir_vec: IVec2 = dir.vec();
-        let curr: IVec2 = (-grid.dimensions() * (dir_vec + dir_vec.perp()))
-            .clamp(IVec2::ZERO, grid.max_dimensions());
+        let curr: IVec2 =
+            (-dimensions * (dir_vec + dir_vec.perp())).clamp(IVec2::ZERO, dimensions - IVec2::ONE);
 
-        Self::until_boundary(grid, curr, dir)
+        Self::until_boundary_for_dimensions(dimensions, curr, dir)
+    }
+
+    pub fn corner<T>(grid: &Grid2D<T>, dir: Direction) -> Self {
+        Self::corner_for_dimensions(grid.dimensions(), dir)
+    }
+
+    pub fn until_boundary_for_dimensions(dimensions: IVec2, curr: IVec2, dir: Direction) -> Self {
+        let dir_vec: IVec2 = dir.vec();
+        let end: IVec2 =
+            (curr + dir_vec * dimensions).clamp(IVec2::ZERO, dimensions - IVec2::ONE) + dir_vec;
+
+        Self { curr, end, dir }
     }
 
     pub fn until_boundary<T>(grid: &Grid2D<T>, curr: IVec2, dir: Direction) -> Self {
-        let dir_vec: IVec2 = dir.vec();
-        let end: IVec2 = (curr + dir_vec * grid.dimensions())
-            .clamp(IVec2::ZERO, grid.max_dimensions())
-            + dir_vec;
+        Self::until_boundary_for_dimensions(grid.dimensions(), curr, dir)
+    }
 
-        Self { curr, end, dir }
+    pub fn iter_edges_for_dimensions(dimensions: IVec2) -> impl Iterator<Item = IVec2> {
+        let take_dimensions: IVec2 = dimensions - IVec2::ONE;
+
+        Direction::iter().flat_map(move |dir| {
+            // Use `dir.next()` so that it starts at (0, 0) and wraps around clockwise from there
+            let dir: Direction = dir.next();
+
+            Self::corner_for_dimensions(dimensions, dir)
+                .take(manhattan_magnitude_2d(dir.vec() * take_dimensions) as usize)
+        })
     }
 }
 
@@ -631,10 +650,14 @@ pub trait GridVisitor: Default + Sized {
     }
 }
 
-pub fn manhattan_distance_2d(a: IVec2, b: IVec2) -> i32 {
-    let abs: IVec2 = (a - b).abs();
+pub fn manhattan_magnitude_2d(pos: IVec2) -> i32 {
+    let abs: IVec2 = pos.abs();
 
     abs.x + abs.y
+}
+
+pub fn manhattan_distance_2d(a: IVec2, b: IVec2) -> i32 {
+    manhattan_magnitude_2d(a - b)
 }
 
 #[cfg(test)]
