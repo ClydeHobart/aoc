@@ -212,6 +212,49 @@ pub trait BreadthFirstSearch: Sized {
     }
 }
 
+/// An implementation of [Kahn's Algorithm][kahn] for producing a topological sort of a DAG.
+///
+/// [kahn]: https://en.wikipedia.org/wiki/Topological_sorting#Kahn's_algorithm
+pub trait Kahn {
+    type Vertex: Clone + Debug + Eq + Hash;
+
+    fn populate_initial_set(&self, initial_set: &mut Vec<Self::Vertex>);
+    fn out_neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>);
+    fn remove_edge(&mut self, from: &Self::Vertex, to: &Self::Vertex);
+    fn has_in_neighbors(&self, vertex: &Self::Vertex) -> bool;
+    fn any_edges_exist(&self) -> bool;
+    fn reset(&mut self);
+
+    fn run(&mut self) -> Option<Vec<Self::Vertex>> {
+        let mut list: Vec<Self::Vertex> = Vec::new();
+        let mut set: Vec<Self::Vertex> = Vec::new();
+        let mut neighbors: Vec<Self::Vertex> = Vec::new();
+
+        self.reset();
+        self.populate_initial_set(&mut set);
+
+        while let Some(vertex) = set.pop() {
+            list.push(vertex.clone());
+            neighbors.clear();
+            self.out_neighbors(&vertex, &mut neighbors);
+
+            for neighbor in neighbors.drain(..) {
+                self.remove_edge(&vertex, &neighbor);
+
+                if !self.has_in_neighbors(&neighbor) {
+                    set.push(neighbor);
+                }
+            }
+        }
+
+        if self.any_edges_exist() {
+            None
+        } else {
+            Some(list)
+        }
+    }
+}
+
 struct NeighborUpdate {
     cost_is_lower: bool,
     is_in_open_set: bool,
