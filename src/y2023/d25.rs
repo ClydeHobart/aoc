@@ -327,6 +327,9 @@ impl<'g> BreadthFirstSearch for NewPartitionFinder<'g> {
 pub struct Solution(Graph);
 
 impl Solution {
+    /// Huge shout out to Reddit user [u/LtHummus][reddit] for this algorithm.
+    ///
+    /// [reddit]: https://www.reddit.com/r/adventofcode/comments/18qbsxs/comment/keu45a6/
     fn new_find_partition(&self, verbose: bool) -> Partition {
         let mut new_partition_finder: NewPartitionFinder = NewPartitionFinder {
             graph: &self.0,
