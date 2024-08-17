@@ -320,7 +320,7 @@ impl<T> Grid2D<T> {
         self.cells.resize_with(self.area(), f);
     }
 
-    pub fn resize(&mut self, dimensions: IVec2, value: T)
+    pub fn clear_and_resize(&mut self, dimensions: IVec2, value: T)
     where
         T: Clone,
     {
@@ -336,6 +336,46 @@ impl<T> Grid2D<T> {
 
             self.cells[..old_len].fill(value);
         }
+    }
+
+    pub fn double_dimensions(&mut self, value: T)
+    where
+        T: Clone,
+    {
+        let row_len: usize = self.dimensions.x as usize;
+        let new_dimensions: IVec2 = 2_i32 * self.dimensions;
+
+        // This is just used for `index_from_pos`.
+        let new_self: Self = Self {
+            cells: Vec::new(),
+            dimensions: new_dimensions,
+        };
+
+        self.cells.resize(
+            new_dimensions.x as usize * new_dimensions.y as usize,
+            value.clone(),
+        );
+
+        // Move the old rows into their new spots.
+        for y in (1_i32..self.dimensions.y).rev() {
+            let row_pos: IVec2 = y * IVec2::Y;
+            let old_row_start: usize = self.index_from_pos(row_pos);
+            let new_row_start: usize = new_self.index_from_pos(row_pos);
+            let (old_row_slice, new_row_slice): (&mut [T], &mut [T]) =
+                self.cells.split_at_mut(new_row_start);
+
+            new_row_slice[..row_len]
+                .clone_from_slice(&old_row_slice[old_row_start..old_row_start + row_len]);
+        }
+
+        // Initialize the new columns within the bounds of the old rows.
+        for y in 0_i32..self.dimensions.y {
+            let new_row_start: usize = new_self.index_from_pos(IVec2::new(self.dimensions.x, y));
+
+            self.cells[new_row_start..new_row_start + row_len].fill(value.clone());
+        }
+
+        self.dimensions = new_dimensions;
     }
 
     pub fn reserve_rows(&mut self, additional_rows: usize) {

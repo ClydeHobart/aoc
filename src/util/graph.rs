@@ -64,7 +64,10 @@ pub trait AStar: Sized {
             BinaryHeap::new();
         let mut open_set_set: HashSet<Self::Vertex> = HashSet::new();
 
-        open_set_heap.push(OpenSetElement(start.clone(), self.cost_from_start(&start)));
+        open_set_heap.push(OpenSetElement(
+            start.clone(),
+            self.cost_from_start(&start) + self.heuristic(&start),
+        ));
         open_set_set.insert(start);
 
         let mut neighbors: Vec<OpenSetElement<Self::Vertex, Self::Cost>> = Vec::new();

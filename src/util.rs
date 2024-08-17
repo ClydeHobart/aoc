@@ -1,4 +1,4 @@
-pub use {graph::*, grid::*, imat3::*};
+pub use {graph::*, grid::*, imat3::*, letter_counts::*};
 
 use {
     clap::Parser,
@@ -14,10 +14,11 @@ use {
     num::{Integer, NumCast, ToPrimitive},
     std::{
         any::type_name,
-        cmp::{max, min},
+        cmp::{max, min, Ordering},
         fmt::Debug,
         fs::File,
         io::{Error as IoError, ErrorKind, Result as IoResult},
+        mem::{transmute, MaybeUninit},
         ops::{Deref, DerefMut, Range, RangeInclusive},
         str::{from_utf8, FromStr, Utf8Error},
     },
@@ -26,6 +27,7 @@ use {
 mod graph;
 mod grid;
 mod imat3;
+mod letter_counts;
 pub mod minimal_value_with_all_digit_pairs;
 
 #[allow(dead_code, unused_imports, unused_variables)]
@@ -417,6 +419,25 @@ pub fn min_and_max<T: Ord + Copy>(v1: T, v2: T) -> (T, T) {
     (min(v1, v2), max(v1, v2))
 }
 
+pub fn try_intersection<T: Ord + Copy>(range1: Range<T>, range2: Range<T>) -> Option<Range<T>> {
+    match (range1.start.cmp(&range1.end), range2.start.cmp(&range2.end)) {
+        (Ordering::Less, Ordering::Less) => (range1.end >= range2.start
+            && range1.start <= range2.end)
+            .then_some(range1.start.max(range2.start)..range1.end.min(range2.end)),
+        (Ordering::Less, Ordering::Equal) => range1.contains(&range2.start).then_some(range2),
+        (Ordering::Equal, Ordering::Less) => range2.contains(&range1.start).then_some(range1),
+        (Ordering::Equal, Ordering::Equal) => (range1.start == range2.start).then_some(range1),
+        _ => None,
+    }
+}
+
+pub fn try_non_empty_intersection<T: Ord + Copy>(
+    range1: Range<T>,
+    range2: Range<T>,
+) -> Option<Range<T>> {
+    try_intersection(range1, range2).filter(|range| !range.is_empty())
+}
+
 pub struct TokenStream<'i, 't, I: Iterator<Item = &'t str>>(&'i mut I);
 
 impl<'i, 't, I: Iterator<Item = &'t str>> TokenStream<'i, 't, I> {
@@ -719,6 +740,117 @@ fn test_iter_prime_factors() {
     );
 }
 
+// This is an implementation of https://en.wikipedia.org/wiki/Greatest_common_divisor#Binary_GCD_algorithm
+pub fn compute_gcd(a: u32, b: u32) -> u32 {
+    let (mut a, mut b) = (a, b);
+    let mut d: u32 = 0_u32;
+
+    match (a.is_even(), b.is_even()) {
+        (true, true) => {
+            d = a.trailing_zeros().min(b.trailing_zeros());
+            a >>= d;
+            b >>= d;
+        }
+        (true, false) => {
+            a >>= a.trailing_zeros();
+        }
+        (false, true) => {
+            b >>= b.trailing_zeros();
+        }
+        (false, false) => {}
+    }
+
+    while a != b {
+        if a > b {
+            let diff: u32 = a - b;
+
+            a = diff >> diff.trailing_zeros();
+        } else {
+            let diff: u32 = b - a;
+
+            b = diff >> diff.trailing_zeros();
+        }
+    }
+
+    a << d
+}
+
+#[test]
+fn test_compute_gcd() {
+    assert_eq!(compute_gcd(2_u32, 3_u32), 1_u32);
+    assert_eq!(compute_gcd(12_u32, 3_u32), 3_u32);
+    assert_eq!(compute_gcd(12_u32, 3_u32), 3_u32);
+    assert_eq!(compute_gcd(25_u32, 3_u32), 1_u32);
+    assert_eq!(compute_gcd(25_u32, 10_u32), 5_u32);
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct ExtendedEuclideanAlgorithmOutput {
+    pub gcd: i64,
+    pub x: i64,
+    pub y: i64,
+}
+
+// This is an implementation of https://en.wikipedia.org/wiki/Extended_Euclidean_algorithm
+pub fn extended_euclidean_algorithm(a: i64, b: i64) -> ExtendedEuclideanAlgorithmOutput {
+    struct Terms {
+        r: i64,
+        s: i64,
+        t: i64,
+    }
+
+    impl From<Terms> for ExtendedEuclideanAlgorithmOutput {
+        fn from(value: Terms) -> Self {
+            Self {
+                gcd: value.r,
+                x: value.s,
+                y: value.t,
+            }
+        }
+    }
+
+    let [mut prev_terms, mut curr_terms]: [Terms; 2_usize] = [
+        Terms {
+            r: a,
+            s: 1_i64,
+            t: 0_i64,
+        },
+        Terms {
+            r: b,
+            s: 0_i64,
+            t: 1_i64,
+        },
+    ];
+
+    loop {
+        let q: i64 = prev_terms.r.div_euclid(curr_terms.r);
+        let next_terms: Terms = Terms {
+            r: prev_terms.r.rem_euclid(curr_terms.r),
+            s: prev_terms.s - q * curr_terms.s,
+            t: prev_terms.t - q * curr_terms.t,
+        };
+
+        if next_terms.r == 0_i64 {
+            return curr_terms.into();
+        } else {
+            prev_terms = curr_terms;
+            curr_terms = next_terms;
+        }
+    }
+}
+
+#[test]
+fn test_extended_euclidean_algorithm() {
+    assert_eq!(
+        extended_euclidean_algorithm(240_i64, 46_i64),
+        ExtendedEuclideanAlgorithmOutput {
+            gcd: 2_i64,
+            x: -9_i64,
+            y: 47_i64,
+        }
+    );
+}
+
 #[macro_export]
 macro_rules! define_cell {
     {
@@ -810,5 +942,28 @@ impl From<bool> for Pixel {
 impl From<Pixel> for bool {
     fn from(value: Pixel) -> Self {
         value.is_light()
+    }
+}
+
+pub trait LargeArrayDefault {
+    fn large_array_default() -> Self;
+}
+
+impl<T: Default, const N: usize> LargeArrayDefault for [T; N] {
+    fn large_array_default() -> Self {
+        let mut maybe_uninit_array_of_t: MaybeUninit<Self> = MaybeUninit::uninit();
+
+        {
+            // SAFETY: We're transmuting to an array of `MaybeUninit` elements of the same size.
+            let array_of_maybe_uninit_t: &mut [MaybeUninit<T>; N] =
+                unsafe { transmute(&mut maybe_uninit_array_of_t) };
+
+            for maybe_uninit_t in array_of_maybe_uninit_t {
+                maybe_uninit_t.write(T::default());
+            }
+        }
+
+        // SAFETY: All elements were just initialized above
+        unsafe { maybe_uninit_array_of_t.assume_init() }
     }
 }

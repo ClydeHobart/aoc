@@ -110,7 +110,8 @@ impl Solution {
         // next_grid has an extra row and column on each side
         let next_dimensions: IVec2 = self.curr_grid.dimensions() + 2_i32 * IVec2::ONE;
 
-        self.next_grid.resize(next_dimensions, Pixel::Dark);
+        self.next_grid
+            .clear_and_resize(next_dimensions, Pixel::Dark);
 
         let mut enhanced: bool = false;
 

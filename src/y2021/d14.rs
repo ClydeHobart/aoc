@@ -72,12 +72,12 @@ impl Rules {
             Self::Complete(rules) => iter
                 .map(|index| rules[index])
                 .enumerate()
-                .any(|(in_index, out_index)| in_index == out_index.into()),
+                .any(|(in_index, out_index)| in_index == usize::from(out_index)),
             Self::Incomplete(rules) => {
                 iter.map(|index| rules[index])
                     .enumerate()
                     .any(|(in_index, out_index)| {
-                        out_index.map_or(false, |out_index| in_index == out_index.into())
+                        out_index.map_or(false, |out_index| in_index == usize::from(out_index))
                     })
             }
         } {
