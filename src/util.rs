@@ -1,4 +1,13 @@
-pub use {graph::*, grid::*, imat3::*, letter_counts::*};
+pub use {
+    graph::*,
+    grid::*,
+    imat3::*,
+    letter_counts::*,
+    nom::{error::Error as NomError, Err as NomErr},
+    pixel::Pixel,
+    static_string::*,
+    table::*,
+};
 
 use {
     clap::Parser,
@@ -17,10 +26,12 @@ use {
         cmp::{max, min, Ordering},
         fmt::Debug,
         fs::File,
+        hash::{DefaultHasher, Hash, Hasher},
         io::{Error as IoError, ErrorKind, Result as IoResult},
         mem::{transmute, MaybeUninit},
         ops::{Deref, DerefMut, Range, RangeInclusive},
         str::{from_utf8, FromStr, Utf8Error},
+        task::Poll,
     },
 };
 
@@ -29,9 +40,14 @@ mod grid;
 mod imat3;
 mod letter_counts;
 pub mod minimal_value_with_all_digit_pairs;
+pub mod pixel;
+mod static_string;
+mod table;
 
 #[allow(dead_code, unused_imports, unused_variables)]
 mod template;
+
+pub type NomErrStr<'s> = NomErr<NomError<&'s str>>;
 
 #[derive(Debug, Parser)]
 pub struct QuestionArgs {
@@ -100,6 +116,23 @@ impl Args {
 
             None
         })
+    }
+}
+
+impl Parse for Args {
+    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
+        let (input, (_, year, _, day)): (&str, (_, u16, _, u8)) =
+            tuple((tag("aoc::y"), parse_integer, tag("::d"), parse_integer))(input)?;
+
+        let args: Self = Self {
+            input_file_path: String::new(),
+            year,
+            day,
+            question: 0_u8,
+            question_args: QuestionArgs { verbose: true },
+        };
+
+        Ok((input, args))
     }
 }
 
@@ -636,6 +669,20 @@ impl<T: SmallRangeInclusiveTraits> From<SmallRangeInclusive<T>> for RangeInclusi
 
 impl<T: Copy + SmallRangeInclusiveTraits> Copy for SmallRangeInclusive<T> {}
 
+pub trait ComputeHash {
+    fn compute_hash(&self) -> u64;
+}
+
+impl<T: Hash> ComputeHash for T {
+    fn compute_hash(&self) -> u64 {
+        let mut hasher: DefaultHasher = DefaultHasher::new();
+
+        self.hash(&mut hasher);
+
+        hasher.finish()
+    }
+}
+
 pub const fn digits(value: u32) -> usize {
     if value == 0_u32 {
         1_usize
@@ -654,24 +701,29 @@ pub struct PrimeFactor {
 
 fn try_get_prime_factor(value: &mut u32, divisor: u32) -> Option<PrimeFactor> {
     let mut local_value: u32 = *value;
-    let mut exponent: u32 = 0_u32;
 
-    if local_value != 1_u32 {
-        while local_value % divisor == 0_u32 {
-            local_value /= divisor;
-            exponent += 1_u32;
+    if local_value == 0_u32 {
+        None
+    } else {
+        let mut exponent: u32 = 0_u32;
+
+        if local_value != 1_u32 {
+            while local_value % divisor == 0_u32 {
+                local_value /= divisor;
+                exponent += 1_u32;
+            }
+
+            *value = local_value;
         }
 
-        *value = local_value;
-    }
-
-    if exponent != 0_u32 {
-        Some(PrimeFactor {
-            prime: divisor,
-            exponent,
-        })
-    } else {
-        None
+        if exponent != 0_u32 {
+            Some(PrimeFactor {
+                prime: divisor,
+                exponent,
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -684,6 +736,18 @@ pub fn iter_prime_factors(mut value: u32) -> impl Iterator<Item = PrimeFactor> {
         .chain((3_u32..=value / 2_u32).step_by(2_usize))
         .chain([value])
         .filter_map(move |divisor| try_get_prime_factor(&mut value, divisor))
+}
+
+pub fn is_prime(value: u32) -> bool {
+    let mut prime_factor_iter = iter_prime_factors(value);
+
+    prime_factor_iter.next().is_some() && prime_factor_iter.next().is_none()
+}
+
+pub fn is_composite(value: u32) -> bool {
+    let mut prime_factor_iter = iter_prime_factors(value);
+
+    prime_factor_iter.next().is_some() && prime_factor_iter.next().is_some()
 }
 
 #[test]
@@ -737,6 +801,10 @@ fn test_iter_prime_factors() {
                 exponent: 1_u32
             },
         ]
+    );
+    assert_eq!(
+        iter_prime_factors(0_u32).collect::<Vec<PrimeFactor>>(),
+        vec![]
     );
 }
 
@@ -913,38 +981,6 @@ macro_rules! define_cell {
     }
 }
 
-define_cell! {
-    #[repr(u8)]
-    #[derive(Clone, Copy, Debug, Default, PartialEq)]
-    pub enum Pixel {
-        #[default]
-        Dark = DARK = b'.',
-        Light = LIGHT = b'#',
-    }
-}
-
-impl Pixel {
-    pub fn is_light(self) -> bool {
-        matches!(self, Self::Light)
-    }
-}
-
-impl From<bool> for Pixel {
-    fn from(value: bool) -> Self {
-        if value {
-            Self::Light
-        } else {
-            Self::Dark
-        }
-    }
-}
-
-impl From<Pixel> for bool {
-    fn from(value: Pixel) -> Self {
-        value.is_light()
-    }
-}
-
 pub trait LargeArrayDefault {
     fn large_array_default() -> Self;
 }
@@ -965,5 +1001,34 @@ impl<T: Default, const N: usize> LargeArrayDefault for [T; N] {
 
         // SAFETY: All elements were just initialized above
         unsafe { maybe_uninit_array_of_t.assume_init() }
+    }
+}
+
+pub fn option_from_poll<T>(poll: Poll<T>) -> Option<T> {
+    match poll {
+        Poll::Ready(value) => Some(value),
+        Poll::Pending => None,
+    }
+}
+
+pub fn poll_from_option<T>(option: Option<T>) -> Poll<T> {
+    match option {
+        Some(value) => Poll::Ready(value),
+        None => Poll::Pending,
+    }
+}
+
+#[macro_export]
+macro_rules! define_super_trait {
+    {
+        $pub:vis trait $super_trait:ident
+            where Self : $first_trait:ident $( + $other_trait:ident )* $( , )?
+        {}
+    } => {
+        $pub trait $super_trait
+            where Self : $first_trait $( + $other_trait )*
+        {}
+
+        impl<T: $first_trait $( + $other_trait )*> $super_trait for T {}
     }
 }

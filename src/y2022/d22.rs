@@ -254,7 +254,7 @@ impl NeighborsGrid {
                     let mut adjuster: IVec2 = IVec2::NEG_X;
 
                     for _ in 0_u8..(edge_dir as u8 + Direction::COUNT as u8 - Direction::East as u8)
-                        & Direction::U8_MASK
+                        & Direction::MASK
                     {
                         edge_start += adjuster;
                         adjuster = adjuster.perp();

@@ -2,12 +2,13 @@ use {
     crate::*,
     nom::{
         bytes::complete::tag,
-        character::complete::{digit1, line_ending},
-        combinator::{map_res, opt},
+        character::complete::line_ending,
+        combinator::{map, map_res, opt},
         error::Error,
+        multi::many0,
+        sequence::{preceded, terminated, tuple},
         Err, IResult,
     },
-    std::str::FromStr,
 };
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -41,16 +42,28 @@ impl<'i> TryFrom<&'i str> for Solution {
 mod tests {
     use {super::*, std::sync::OnceLock};
 
-    const SOLUTION_STR: &'static str = "";
+    const SOLUTION_STRS: &'static [&'static str] = &[""];
 
-    fn solution() -> &'static Solution {
-        static ONCE_LOCK: OnceLock<Solution> = OnceLock::new();
+    fn solution(index: usize) -> &'static Solution {
+        static ONCE_LOCK: OnceLock<Vec<Solution>> = OnceLock::new();
 
-        ONCE_LOCK.get_or_init(|| todo!())
+        &ONCE_LOCK.get_or_init(|| vec![])[index]
     }
 
     #[test]
     fn test_try_from_str() {
-        // assert_eq!(Solution::try_from(SOLUTION_STR).as_ref(), Ok(solution()));
+        for (index, solution_str) in SOLUTION_STRS.iter().copied().enumerate() {
+            assert_eq!(
+                Solution::try_from(solution_str).as_ref(),
+                Ok(solution(index))
+            );
+        }
+    }
+
+    #[test]
+    fn test_input() {
+        // let args: Args = Args::parse(module_path!()).unwrap().1;
+
+        // Solution::both(&args);
     }
 }

@@ -1,4 +1,4 @@
-pub use direction::*;
+pub use {direction::*, hex::*};
 
 use {
     super::*,
@@ -21,6 +21,24 @@ use {
     strum::IntoEnumIterator,
 };
 
+macro_rules! define_direction {
+    {
+        $(#[$meta:meta])*
+        $vis:vis enum $direction:ident {
+            $( $variant:ident, )*
+        }
+    } => {
+        $(#[$meta])*
+        $vis enum $direction {
+            $( $variant, )*
+        }
+
+        const VECS: [IVec2; $direction::COUNT] = [
+            $( $direction::$variant.vec_internal(), )*
+        ];
+    };
+}
+
 mod direction {
     use {
         super::*,
@@ -28,24 +46,6 @@ mod direction {
         std::mem::transmute,
         strum::{EnumCount, EnumIter},
     };
-
-    macro_rules! define_direction {
-        {
-            $(#[$meta:meta])*
-            $vis:vis enum $direction:ident {
-                $( $variant:ident, )*
-            }
-        } => {
-            $(#[$meta])*
-            $vis enum $direction {
-                $( $variant, )*
-            }
-
-            const VECS: [IVec2; $direction::COUNT] = [
-                $( $direction::$variant.vec_internal(), )*
-            ];
-        };
-    }
 
     define_direction! {
         #[derive(Copy, Clone, Debug, EnumCount, EnumIter, Eq, Hash, PartialEq)]
@@ -63,7 +63,10 @@ mod direction {
     const_assert!(Direction::COUNT == 4_usize);
 
     impl Direction {
-        pub const U8_MASK: u8 = Self::COUNT as u8 - 1_u8;
+        pub const COUNT_U8: u8 = Self::COUNT as u8;
+        pub const MASK: u8 = Self::COUNT_U8 - 1_u8;
+        pub const HALF_COUNT: u8 = Self::COUNT_U8 / 2_u8;
+        pub const PREV_DELTA: u8 = Self::COUNT_U8 - 1_u8;
 
         #[inline]
         pub const fn vec(self) -> IVec2 {
@@ -73,7 +76,7 @@ mod direction {
         #[inline]
         pub const fn from_u8(value: u8) -> Self {
             // SAFETY: See `const_assert` above
-            unsafe { transmute(value & Self::U8_MASK) }
+            unsafe { transmute(value & Self::MASK) }
         }
 
         #[inline]
@@ -83,12 +86,12 @@ mod direction {
 
         #[inline]
         pub const fn rev(self) -> Self {
-            Self::from_u8(self as u8 + 2_u8)
+            Self::from_u8(self as u8 + Self::HALF_COUNT)
         }
 
         #[inline]
         pub const fn prev(self) -> Self {
-            Self::from_u8(self as u8 + 3_u8)
+            Self::from_u8(self as u8 + Self::PREV_DELTA)
         }
 
         pub const fn turn(self, left: bool) -> Self {
@@ -172,6 +175,147 @@ mod direction {
                 Ok((delta / (abs.x + abs.y)).try_into().unwrap())
             }
         }
+    }
+}
+
+mod hex {
+    use {
+        super::*,
+        static_assertions::const_assert,
+        std::mem::transmute,
+        strum::{EnumCount, EnumIter},
+    };
+
+    define_direction! {
+        #[derive(Copy, Clone, Debug, EnumCount, EnumIter, Eq, Hash, PartialEq)]
+        #[repr(u8)]
+        pub enum HexDirection {
+            North,
+            NorthEast,
+            SouthEast,
+            South,
+            SouthWest,
+            NorthWest,
+        }
+    }
+
+    const_assert!(HexDirection::COUNT == 6_usize);
+
+    impl HexDirection {
+        pub const COUNT_U8: u8 = Self::COUNT as u8;
+        pub const HALF_COUNT: u8 = Self::COUNT_U8 / 2_u8;
+        pub const PREV_DELTA: u8 = Self::COUNT_U8 - 1_u8;
+
+        #[inline]
+        pub const fn vec(self) -> IVec2 {
+            VECS[self as usize]
+        }
+
+        #[inline]
+        pub const fn from_u8(value: u8) -> Self {
+            // SAFETY: This is set to the count, but as a `u8`.
+            unsafe { transmute(value % Self::COUNT_U8) }
+        }
+
+        #[inline]
+        pub const fn next(self) -> Self {
+            Self::from_u8(self as u8 + 1_u8)
+        }
+
+        #[inline]
+        pub const fn rev(self) -> Self {
+            Self::from_u8(self as u8 + Self::HALF_COUNT)
+        }
+
+        #[inline]
+        pub const fn prev(self) -> Self {
+            Self::from_u8(self as u8 + Self::PREV_DELTA)
+        }
+
+        pub const fn turn(self, left: bool) -> Self {
+            if left {
+                self.prev()
+            } else {
+                self.next()
+            }
+        }
+
+        const fn vec_internal(self) -> IVec2 {
+            match self {
+                Self::North => IVec2::NEG_Y,
+                Self::NorthEast => IVec2::X,
+                Self::SouthEast => IVec2::ONE,
+                Self::South => IVec2::Y,
+                Self::SouthWest => IVec2::NEG_X,
+                Self::NorthWest => IVec2::NEG_ONE,
+            }
+        }
+    }
+
+    impl From<Direction> for HexDirection {
+        fn from(value: Direction) -> Self {
+            match value {
+                Direction::North => Self::North,
+                Direction::East => Self::NorthEast,
+                Direction::South => Self::South,
+                Direction::West => Self::SouthWest,
+            }
+        }
+    }
+
+    impl TryFrom<HexDirection> for Direction {
+        type Error = ();
+
+        fn try_from(value: HexDirection) -> Result<Self, Self::Error> {
+            match value {
+                HexDirection::North => Ok(Self::North),
+                HexDirection::NorthEast => Ok(Self::East),
+                HexDirection::SouthEast => Err(()),
+                HexDirection::South => Ok(Self::South),
+                HexDirection::SouthWest => Ok(Self::West),
+                HexDirection::NorthWest => Err(()),
+            }
+        }
+    }
+
+    impl From<HexDirection> for IVec2 {
+        fn from(value: HexDirection) -> Self {
+            value.vec()
+        }
+    }
+
+    impl From<u8> for HexDirection {
+        fn from(value: u8) -> Self {
+            Self::from_u8(value)
+        }
+    }
+
+    impl TryFrom<IVec2> for HexDirection {
+        type Error = ();
+
+        fn try_from(value: IVec2) -> Result<Self, Self::Error> {
+            VECS.iter()
+                .position(|vec| *vec == value)
+                .map(|index| (index as u8).into())
+                .ok_or(())
+        }
+    }
+
+    pub fn hex_manhattan_magnitude(pos: IVec2) -> i32 {
+        if pos.cmpeq(IVec2::ZERO).any() || pos.x * pos.y < 0_i32 {
+            // If either of the components is 0, just travel directly to `pos`. Otherwise, if the
+            // product of the components is negative, it's in a quadrant with no diagonal routes
+            // that accelerate travel, leaving only orthogonal segments.
+            manhattan_magnitude_2d(pos)
+        } else {
+            // Travel diagonally as much as possible (`pos.abs().min_element()`), then orthogonally
+            // the rest of the way (`pos.abs().max_element() - pos.abs().min_element()`).
+            pos.abs().max_element()
+        }
+    }
+
+    pub fn hex_manhattan_distance(a: IVec2, b: IVec2) -> i32 {
+        hex_manhattan_magnitude(a - b)
     }
 }
 

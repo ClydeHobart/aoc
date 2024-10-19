@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(test, derive(Debug))]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct LetterCount {
     pub letter: u8,
     pub count: u8,
@@ -23,6 +24,8 @@ impl PartialOrd for LetterCount {
     }
 }
 
+#[cfg_attr(test, derive(Debug))]
+#[derive(Eq, Hash, PartialEq)]
 pub struct LetterCounts(pub [LetterCount; Self::LEN]);
 
 impl LetterCounts {

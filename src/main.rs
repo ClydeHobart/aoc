@@ -1,5 +1,5 @@
 use {aoc::*, clap::Parser};
 
 fn main() {
-    solutions().run(&Args::parse());
+    solutions().run(&<Args as Parser>::parse());
 }
