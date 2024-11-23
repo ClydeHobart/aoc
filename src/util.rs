@@ -5,6 +5,7 @@ pub use {
     letter_counts::*,
     nom::{error::Error as NomError, Err as NomErr},
     pixel::Pixel,
+    region_tree::*,
     static_string::*,
     table::*,
 };
@@ -20,20 +21,24 @@ use {
         sequence::tuple,
         IResult,
     },
-    num::{Integer, NumCast, ToPrimitive},
+    num::{Integer, NumCast, PrimInt, ToPrimitive},
     std::{
+        alloc::{alloc, Layout},
         any::type_name,
         cmp::{max, min, Ordering},
         fmt::Debug,
         fs::File,
         hash::{DefaultHasher, Hash, Hasher},
         io::{Error as IoError, ErrorKind, Result as IoResult},
-        mem::{transmute, MaybeUninit},
+        mem::{transmute, ManuallyDrop, MaybeUninit},
         ops::{Deref, DerefMut, Range, RangeInclusive},
         str::{from_utf8, FromStr, Utf8Error},
         task::Poll,
     },
 };
+
+#[cfg(test)]
+use std::rc::Rc;
 
 mod graph;
 mod grid;
@@ -41,6 +46,7 @@ mod imat3;
 mod letter_counts;
 pub mod minimal_value_with_all_digit_pairs;
 pub mod pixel;
+mod region_tree;
 mod static_string;
 mod table;
 
@@ -1004,6 +1010,57 @@ impl<T: Default, const N: usize> LargeArrayDefault for [T; N] {
     }
 }
 
+pub fn boxed_slice_from_array<T: Unpin, const N: usize>(array: [T; N]) -> Box<[T]> {
+    let array: ManuallyDrop<[T; N]> = ManuallyDrop::new(array);
+
+    // SAFETY: The compiler gives the following error when trying to transmute by value:
+    // ```
+    // error[E0512]: cannot transmute between types of different sizes, or dependently-sized types
+    // ```
+    // We know, of course, that these types are actually the same size and alignment. Note that this
+    // has to be an array of `MaybeUninit` instead of `ManuallyDrop` because we can only take it by
+    // reference, yet we want to assume ownership (without cloning or copying) of each element.
+    // `MaybeUninit::assume_init_read` can achieve that, but `ManuallyDrop` has no such method.
+    let array: &[MaybeUninit<T>; N] = unsafe { transmute(&array) };
+
+    let array_ptr: *mut [T; N] = unsafe { alloc(Layout::new::<[T; N]>()) } as *mut [T; N];
+
+    {
+        let array_mut: &mut [MaybeUninit<T>; N] =
+            // SAFETY: In reality, elements of this array are currently uninitialized. This pointer
+            // cast just explicitly acknowledges that.
+            unsafe {(array_ptr as *mut [MaybeUninit<T>; N]).as_mut()}.unwrap();
+
+        for (src, dst) in array.iter().zip(array_mut.iter_mut()) {
+            // SAFETY: Each element of src is really an element of the original `array` function
+            // parameter, which is known to be initialized.
+            dst.write(unsafe { src.assume_init_read() });
+        }
+    }
+
+    // SAFETY: At this point, all elements of array_ptr have been initialized, and the shadowed
+    // `array` will drop without calling drop on the elements that have now been moved into the
+    // slice.
+    unsafe { Box::from_raw(array_ptr) }
+}
+
+#[test]
+fn test_boxed_slice_from_array() {
+    let rc: Rc<()> = Rc::new(());
+
+    let array: [Rc<()>; 4_usize] = [rc.clone(), rc.clone(), rc.clone(), rc.clone()];
+
+    assert_eq!(Rc::strong_count(&rc), 5_usize);
+
+    {
+        let _boxed_slice: Box<[Rc<()>]> = boxed_slice_from_array(array);
+
+        assert_eq!(Rc::strong_count(&rc), 5_usize);
+    }
+
+    assert_eq!(Rc::strong_count(&rc), 1_usize);
+}
+
 pub fn option_from_poll<T>(poll: Poll<T>) -> Option<T> {
     match poll {
         Poll::Ready(value) => Some(value),
@@ -1015,6 +1072,48 @@ pub fn poll_from_option<T>(option: Option<T>) -> Poll<T> {
     match option {
         Some(value) => Poll::Ready(value),
         None => Poll::Pending,
+    }
+}
+
+pub fn add_break_on_overflow<I: PrimInt>(a: I, b: I) -> I {
+    match a.checked_add(&b) {
+        Some(sum) => sum,
+        None => {
+            panic!();
+        }
+    }
+}
+
+pub fn sub_break_on_overflow<I: PrimInt>(a: I, b: I) -> I {
+    match a.checked_sub(&b) {
+        Some(difference) => difference,
+        None => {
+            panic!();
+        }
+    }
+}
+
+pub fn mul_break_on_overflow<I: PrimInt>(a: I, b: I) -> I {
+    match a.checked_mul(&b) {
+        Some(product) => product,
+        None => {
+            panic!();
+        }
+    }
+}
+
+pub fn div_break_on_overflow<I: PrimInt>(a: I, b: I) -> I {
+    match a.checked_div(&b) {
+        Some(quotient) => quotient,
+        None => {
+            panic!();
+        }
+    }
+}
+
+pub fn assert_eq_break<T: Debug + PartialEq>(left: T, right: T) {
+    if left != right {
+        assert_eq!(left, right);
     }
 }
 

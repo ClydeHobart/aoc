@@ -10,11 +10,7 @@ use {
         sequence::{preceded, separated_pair, terminated, tuple},
         Err, IResult, Parser,
     },
-    std::{
-        alloc::{alloc, Layout},
-        mem::MaybeUninit,
-        ops::{DerefMut, Range},
-    },
+    std::ops::{DerefMut, Range},
 };
 
 type Ranges = [Range<i32>; 3_usize];
@@ -82,34 +78,10 @@ enum NodeData {
 
 impl NodeData {
     fn default_parent<const CHILDREN: usize>() -> Self {
-        let children: Children = Children(Self::box_children::<CHILDREN>());
-
-        Self::Parent { children }
-    }
-
-    fn box_children<const CHILDREN: usize>() -> Box<[Node]> {
-        // SAFETY: Follow the expression within `from_raw` below.
-        unsafe {
-            Box::from_raw({
-                let children_ptr: *mut [Node; CHILDREN] =
-                    alloc(Layout::new::<[Node; CHILDREN]>()) as *mut [Node; CHILDREN];
-
-                {
-                    let maybe_uninit_children: &mut [MaybeUninit<Node>; CHILDREN] =
-                    // SAFETY: In reality, elements of this array are currently
-                    // uninitialized. This pointer cast just explicitly acknowledges that.
-                    (children_ptr as *mut [MaybeUninit<Node>; CHILDREN])
-                        .as_mut()
-                        .unwrap();
-
-                    for maybe_uninit_child in maybe_uninit_children.iter_mut() {
-                        maybe_uninit_child.write(Default::default());
-                    }
-                }
-
-                // SAFETY: At this point, all elements of the array have been initialzied.
-                children_ptr
-            })
+        Self::Parent {
+            children: Children(boxed_slice_from_array(
+                <[Node; CHILDREN] as LargeArrayDefault>::large_array_default(),
+            )),
         }
     }
 }

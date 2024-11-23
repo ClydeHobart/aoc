@@ -9,18 +9,16 @@ pub struct LetterCount {
 
 impl Ord for LetterCount {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
+        self.count
+            .cmp(&other.count)
+            .reverse()
+            .then_with(|| self.letter.cmp(&other.letter))
     }
 }
 
 impl PartialOrd for LetterCount {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(
-            self.count
-                .cmp(&other.count)
-                .reverse()
-                .then_with(|| self.letter.cmp(&other.letter)),
-        )
+        Some(self.cmp(other))
     }
 }
 
@@ -33,6 +31,17 @@ impl LetterCounts {
 
     pub fn from_str(value: &str) -> Self {
         value.as_bytes().iter().copied().into()
+    }
+
+    pub fn iter_letter_counts_with_count(&self, count: u8) -> impl Iterator<Item = &LetterCount> {
+        self.0
+            .iter()
+            .skip_while(move |letter_count| letter_count.count > count)
+            .take_while(move |letter_count| letter_count.count == count)
+    }
+
+    pub fn try_find_letter_count_with_count(&self, count: u8) -> Option<&LetterCount> {
+        self.iter_letter_counts_with_count(count).next()
     }
 }
 
