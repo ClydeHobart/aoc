@@ -217,8 +217,8 @@ where
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RangeD<I: RangeIntTrait, const D: usize> {
-    start: [I; D],
-    len_exponent: [u8; D],
+    pub start: [I; D],
+    pub len_exponent: [u8; D],
 }
 
 impl<I: RangeIntTrait, const D: usize> RangeD<I, D> {
@@ -454,6 +454,7 @@ where
     }
 }
 
+pub type Range1<I = i32> = RangeD<I, 1_usize>;
 pub type Range2<I = i32> = RangeD<I, 2_usize>;
 pub type Range3<I = i32> = RangeD<I, 3_usize>;
 
@@ -584,6 +585,7 @@ impl<const D: usize, I: RangeIntTrait, T: RegionTreeValue> RegionTree<I, D, T> {
     }
 }
 
+pub type BinaryTree<T, I = i32> = RegionTree<I, 1_usize, T>;
 pub type QuadTree<T, I = i32> = RegionTree<I, 2_usize, T>;
 pub type OctTree<T, I = i32> = RegionTree<I, 3_usize, T>;
 

@@ -15,9 +15,9 @@ use {
     glam::IVec3,
     memmap::Mmap,
     nom::{
-        bytes::complete::tag,
+        bytes::complete::{tag, take},
         character::complete::digit1,
-        combinator::{map, map_res, opt, rest},
+        combinator::{all_consuming, map, map_res, opt, rest},
         sequence::tuple,
         IResult,
     },
@@ -549,6 +549,14 @@ pub fn parse_integer<'i, I: FromStr + Integer>(input: &'i str) -> IResult<&'i st
     )(input)
 }
 
+pub fn parse_integer_n_bytes<'i, I: FromStr + Integer>(
+    n: usize,
+) -> impl FnMut(&'i str) -> IResult<&'i str, I> {
+    map_res(take(n), |input| {
+        all_consuming(parse_integer)(input).map(|(_, integer)| integer)
+    })
+}
+
 pub trait Parse: Sized {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self>;
 }
@@ -923,6 +931,14 @@ fn test_extended_euclidean_algorithm() {
             y: 47_i64,
         }
     );
+}
+
+pub const fn bits_to_store(value: u32) -> u32 {
+    match value.count_ones() {
+        0_u32 => 1_u32,
+        1_u32 => value.ilog2(),
+        _ => value.ilog2() + 1_u32,
+    }
 }
 
 #[macro_export]
