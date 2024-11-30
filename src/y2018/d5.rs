@@ -137,23 +137,16 @@ struct UnitRange {
 }
 
 impl UnitRange {
-    // Taken from `core::num` for faster conversion.
-    const ASCII_CASE_MASK: u8 = 0b0010_0000;
-
     fn units_react(unit_a: u8, unit_b: u8) -> bool {
         match (unit_a, unit_b) {
-            (b'A'..=b'Z', b'a'..=b'z') => (unit_a | Self::ASCII_CASE_MASK) == unit_b,
-            (b'a'..=b'z', b'A'..=b'Z') => unit_a == (unit_b | Self::ASCII_CASE_MASK),
+            (b'A'..=b'Z', b'a'..=b'z') => (unit_a | ASCII_CASE_MASK) == unit_b,
+            (b'a'..=b'z', b'A'..=b'Z') => unit_a == (unit_b | ASCII_CASE_MASK),
             _ => false,
         }
     }
 
     fn should_skip_unit(unit_to_skip: Option<u8>) -> impl Fn(u8) -> bool {
-        move |c| {
-            unit_to_skip.map_or(false, |unit_to_skip| {
-                (c | Self::ASCII_CASE_MASK) == unit_to_skip
-            })
-        }
+        move |c| unit_to_skip.map_or(false, |unit_to_skip| (c | ASCII_CASE_MASK) == unit_to_skip)
     }
 
     fn should_skip_unit_char(unit_to_skip: Option<u8>) -> impl Fn(char) -> bool {

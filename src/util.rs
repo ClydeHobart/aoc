@@ -53,6 +53,9 @@ mod table;
 #[allow(dead_code, unused_imports, unused_variables)]
 mod template;
 
+// Taken from `core::num` for faster conversion.
+pub const ASCII_CASE_MASK: u8 = 0b0010_0000;
+
 pub type NomErrStr<'s> = NomErr<NomError<&'s str>>;
 
 #[derive(Debug, Parser)]

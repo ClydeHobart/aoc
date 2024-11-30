@@ -1,10 +1,15 @@
-use std::{
-    cmp::Ordering,
-    collections::{BinaryHeap, HashSet, VecDeque},
-    fmt::Debug,
-    hash::Hash,
-    mem::take,
-    ops::Add,
+use {
+    super::CellIter2D,
+    glam::IVec2,
+    std::{
+        cmp::Ordering,
+        collections::{BinaryHeap, HashSet, VecDeque},
+        fmt::Debug,
+        hash::Hash,
+        iter::from_fn,
+        mem::take,
+        ops::Add,
+    },
 };
 
 pub struct OpenSetElement<V: Clone + PartialEq, C: Clone + Ord>(pub V, pub C);
@@ -386,5 +391,110 @@ pub trait Dijkstra: Sized {
         }
 
         None
+    }
+}
+
+fn jump_flooding_algoritm_iter_k(n: i32) -> impl Iterator<Item = i32> {
+    let mut k: i32 = n;
+
+    from_fn(move || {
+        k /= 2_i32;
+
+        (k > 0_i32).then_some(k)
+    })
+}
+
+/// An implementation of the [Jump Flooding Algorithm][jfa] for constructing a Voronoi diagram.
+///
+/// [jfa]: https://en.wikipedia.org/wiki/Jump_flooding_algorithm
+pub trait JumpFloodingAlgorithm {
+    type Pixel: Clone + PartialEq;
+    type Dist: PartialOrd;
+
+    fn dist(a: IVec2, b: IVec2) -> Self::Dist;
+    fn n(&self) -> i32;
+    fn is_pos_valid(&self, pos: IVec2) -> bool;
+    fn try_get_p_pixel(&self, pos: IVec2) -> Option<Self::Pixel>;
+    fn try_get_q_pixel(&self, pos: IVec2) -> Option<Self::Pixel>;
+    fn get_seed(&self, pixel: Self::Pixel) -> IVec2;
+    fn update_pixel(&mut self, pos: IVec2, pixel: Self::Pixel, strictly_closer: bool);
+    fn reset(&mut self);
+    fn on_iteration_complate(&mut self);
+
+    fn run_iteration(&mut self, n: i32, k: i32) {
+        let q_array: [i32; 3_usize] = [-k, 0_i32, k];
+
+        for p in CellIter2D::try_from(IVec2::ZERO..IVec2::new(0_i32, n))
+            .unwrap()
+            .flat_map(|row_pos| CellIter2D::try_from(row_pos..IVec2::new(n, row_pos.y)).unwrap())
+        {
+            let mut p_pixel_option: Option<Self::Pixel> = self.try_get_p_pixel(p);
+
+            for q in q_array
+                .into_iter()
+                .flat_map(|j| q_array.into_iter().map(move |i| p + IVec2::new(i, j)))
+            {
+                if let Some(q_pixel) = (self.is_pos_valid(q) && p != q)
+                    .then(|| self.try_get_q_pixel(q))
+                    .flatten()
+                {
+                    if let Some(p_pixel) = p_pixel_option.clone() {
+                        if p_pixel != q_pixel {
+                            if let Some(ordering) = Self::dist(p, self.get_seed(p_pixel))
+                                .partial_cmp(&Self::dist(p, self.get_seed(q_pixel.clone())))
+                            {
+                                if ordering.is_ge() {
+                                    self.update_pixel(p, q_pixel, ordering.is_gt());
+                                    p_pixel_option = self.try_get_p_pixel(p);
+                                }
+                            }
+                        }
+                    } else {
+                        self.update_pixel(p, q_pixel, true);
+                        p_pixel_option = self.try_get_p_pixel(p);
+                    }
+                }
+            }
+        }
+
+        self.on_iteration_complate();
+    }
+
+    fn run_iterations<K: Iterator<Item = i32>>(&mut self, k_iter: K) {
+        self.reset();
+
+        let n: i32 = self.n();
+
+        assert!(n >= 0_i32);
+
+        for k in k_iter {
+            self.run_iteration(n, k);
+        }
+    }
+
+    fn run_jfa(&mut self) {
+        self.run_iterations(jump_flooding_algoritm_iter_k(self.n()))
+    }
+
+    fn run_jfa_plus_one(&mut self) {
+        self.run_iterations(jump_flooding_algoritm_iter_k(self.n()).chain([1_i32]))
+    }
+
+    fn run_jfa_plus_two(&mut self) {
+        self.run_iterations(jump_flooding_algoritm_iter_k(self.n()).chain([2_i32, 1_i32]))
+    }
+
+    fn run_one_plus_jfa(&mut self) {
+        self.run_iterations(
+            [1_i32]
+                .into_iter()
+                .chain(jump_flooding_algoritm_iter_k(self.n())),
+        )
+    }
+
+    fn run_jfa_squared(&mut self) {
+        self.run_iterations(
+            jump_flooding_algoritm_iter_k(self.n()).chain(jump_flooding_algoritm_iter_k(self.n())),
+        )
     }
 }
