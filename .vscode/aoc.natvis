@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+	<Type Name="aoc::y2018::d7::StepBitArray">
+		<DisplayString>Test</DisplayString>
+		<CustomListItems MaxItemsPerView="5000" ExcludeView="Test">
+			<Variable Name="bit" InitialValue="0" />
+			<Variable Name="bits" InitialValue="__0.data[0]" />
+			<Loop>
+				<If Condition="bits % 2 != 0">
+					<Item>{bit}</Item>
+				</If>
+				<Exec>bit = bit + 1</Exec>
+				<Exec>bits = bits / 2</Exec>
+				<Break Condition="bits == 0" />
+			</Loop>
+		</CustomListItems>
+	</Type>
+</AutoVisualizer>

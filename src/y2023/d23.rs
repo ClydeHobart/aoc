@@ -207,9 +207,9 @@ impl<'s> NewLongestHikeFinder<'s> {
 impl<'s> Kahn for NewLongestHikeFinder<'s> {
     type Vertex = IVec2;
 
-    fn populate_initial_set(&self, initial_set: &mut Vec<Self::Vertex>) {
+    fn populate_initial_set(&self, initial_set: &mut VecDeque<Self::Vertex>) {
         initial_set.clear();
-        initial_set.push(self.old_longest_hike_finder.solution.start);
+        initial_set.push_back(self.old_longest_hike_finder.solution.start);
     }
 
     fn out_neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>) {
@@ -294,6 +294,8 @@ impl<'s> Kahn for NewLongestHikeFinder<'s> {
             }
         }
     }
+
+    fn order_set(&self, _set: &mut VecDeque<Self::Vertex>) {}
 }
 
 struct ReducedNeighbor {
