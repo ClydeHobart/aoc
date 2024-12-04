@@ -333,6 +333,12 @@ pub fn abs_sum_2d(pos: IVec2) -> i32 {
     abs.x + abs.y
 }
 
+pub fn grid_2d_pos_from_index_and_dimensions(index: usize, dimensions: IVec2) -> IVec2 {
+    let x: usize = dimensions.x as usize;
+
+    IVec2::new((index % x) as i32, (index / x) as i32)
+}
+
 pub struct Grid2D<T> {
     cells: Vec<T>,
 
@@ -422,9 +428,7 @@ impl<T> Grid2D<T> {
     }
 
     pub fn pos_from_index(&self, index: usize) -> IVec2 {
-        let x: usize = self.dimensions.x as usize;
-
-        IVec2::new((index % x) as i32, (index / x) as i32)
+        grid_2d_pos_from_index_and_dimensions(index, self.dimensions)
     }
 
     #[inline(always)]

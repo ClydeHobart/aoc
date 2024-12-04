@@ -1,14 +1,17 @@
 use {
     crate::*,
+    bitvec::{prelude::*, view::BitView},
     nom::{
         bytes::complete::tag,
         character::complete::line_ending,
-        combinator::{map, map_res, opt},
+        combinator::{map, opt},
         error::Error,
-        multi::many0,
-        sequence::{preceded, terminated, tuple},
+        multi::{many0_count, many_m_n},
+        sequence::{terminated, tuple},
         Err, IResult,
     },
+    num::{One, Zero},
+    std::mem::swap,
 };
 
 /* --- Day 12: Subterranean Sustainability ---
@@ -78,20 +81,191 @@ After one generation, only seven plants remain. The one in pot 0 matched the rul
 
 In this example, after 20 generations, the pots shown as # contain plants, the furthest left of which is pot -2, and the furthest right of which is pot 34. Adding up all the numbers of plant-containing pots after the 20th generation produces 325.
 
-After 20 generations, what is the sum of the numbers of all pots which contain a plant? */
+After 20 generations, what is the sum of the numbers of all pots which contain a plant?
+
+--- Part Two ---
+
+You realize that 20 generations aren't enough. After all, these plants will need to last another 1500 years to even reach your timeline, not to mention your future.
+
+After fifty billion (50000000000) generations, what is the sum of the numbers of all pots which contain a plant? */
+
+const PLANT_SPREAD_RULES_INPUT_LEN: usize = 5_usize;
+const PLANT_SPREAD_WINDOW_TO_CENTER_OFFSET: usize = PLANT_SPREAD_RULES_INPUT_LEN / 2_usize;
+
+type PlantSpreadRulesBitArray = BitArr!(for 1_usize << PLANT_SPREAD_RULES_INPUT_LEN, in u32);
+
+type PotsWithPlantsStorage = u32;
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct Solution;
+#[derive(Clone)]
+pub struct Solution {
+    curr_pots_with_plants: Vec<PotsWithPlantsStorage>,
+    next_pots_with_plants: Vec<PotsWithPlantsStorage>,
+    pot_index_offset: i32,
+    plant_spread_rules: PlantSpreadRulesBitArray,
+}
+
+impl Solution {
+    const GENERATIONS: usize = 20_usize;
+
+    fn first_plant_spread_bits_have_plant(pots_with_plants_storage: PotsWithPlantsStorage) -> bool {
+        pots_with_plants_storage
+            & ((PotsWithPlantsStorage::one() << PLANT_SPREAD_RULES_INPUT_LEN)
+                - PotsWithPlantsStorage::one())
+            != PotsWithPlantsStorage::zero()
+    }
+
+    fn last_plant_spread_bits_have_plant(pots_with_plants_storage: PotsWithPlantsStorage) -> bool {
+        pots_with_plants_storage
+            >> (PotsWithPlantsStorage::BITS as usize - PLANT_SPREAD_RULES_INPUT_LEN)
+            != PotsWithPlantsStorage::zero()
+    }
+
+    fn iter_pots_with_plants(&self) -> impl Iterator<Item = i32> + '_ {
+        self.curr_pots_with_plants
+            .view_bits::<Lsb0>()
+            .iter_ones()
+            .map(|pot_with_plant| pot_with_plant as i32 - self.pot_index_offset)
+    }
+
+    fn pots_with_plants_sum_after_generations(&self, generations: usize) -> i32 {
+        let mut solution: Self = self.clone();
+
+        for _ in 0_usize..generations {
+            solution.next_generation();
+        }
+
+        solution.iter_pots_with_plants().sum()
+    }
+
+    fn next_generation(&mut self) {
+        self.next_pots_with_plants.clear();
+        self.next_pots_with_plants.resize(
+            self.curr_pots_with_plants.len(),
+            PotsWithPlantsStorage::zero(),
+        );
+
+        let next_pots_with_plants_bits: &mut BitSlice<PotsWithPlantsStorage> =
+            self.next_pots_with_plants.view_bits_mut::<Lsb0>();
+
+        for (adjacent_plants_index, adjacent_plants) in self
+            .curr_pots_with_plants
+            .view_bits::<Lsb0>()
+            .windows(PLANT_SPREAD_RULES_INPUT_LEN)
+            .enumerate()
+        {
+            next_pots_with_plants_bits.set(
+                adjacent_plants_index + PLANT_SPREAD_WINDOW_TO_CENTER_OFFSET,
+                self.plant_spread_rules[adjacent_plants.load::<usize>()],
+            );
+        }
+
+        if Self::first_plant_spread_bits_have_plant(*self.next_pots_with_plants.first().unwrap()) {
+            self.next_pots_with_plants
+                .insert(0_usize, PotsWithPlantsStorage::zero());
+            self.pot_index_offset += PotsWithPlantsStorage::BITS as i32;
+        }
+
+        if Self::last_plant_spread_bits_have_plant(*self.next_pots_with_plants.last().unwrap()) {
+            self.next_pots_with_plants
+                .push(PotsWithPlantsStorage::zero());
+        }
+
+        swap(
+            &mut self.curr_pots_with_plants,
+            &mut self.next_pots_with_plants,
+        );
+    }
+}
 
 impl Parse for Solution {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
-        todo!()
+        map(
+            tuple((
+                tag("initial state: "),
+                |input: &'i str| {
+                    let mut curr_pots_with_plants: Vec<u32> = vec![0_u32, 0_u32];
+                    let mut pot_index: usize = u32::BITS as usize;
+
+                    let input: &str = many0_count(map(Pixel::parse, |pixel| {
+                        curr_pots_with_plants
+                            .view_bits_mut::<Lsb0>()
+                            .set(pot_index, pixel.is_light());
+
+                        pot_index += 1_usize;
+
+                        if pot_index % u32::BITS as usize == 0_usize {
+                            curr_pots_with_plants.push(0_u32);
+                        }
+                    }))(input)?
+                    .0;
+
+                    if Self::last_plant_spread_bits_have_plant(
+                        *curr_pots_with_plants.last().unwrap(),
+                    ) {
+                        curr_pots_with_plants.push(0_u32);
+                    }
+
+                    Ok((input, (curr_pots_with_plants, Vec::new(), u32::BITS as i32)))
+                },
+                line_ending,
+                line_ending,
+                |input: &'i str| {
+                    let mut plant_spread_rules: PlantSpreadRulesBitArray =
+                        PlantSpreadRulesBitArray::ZERO;
+
+                    let input: &str = many0_count(terminated(
+                        |input: &'i str| {
+                            let mut rule_index: usize = 0_usize;
+                            let mut rule_bit_mask: usize = 1_usize;
+
+                            let input: &str = tuple((
+                                many_m_n(
+                                    PLANT_SPREAD_RULES_INPUT_LEN,
+                                    PLANT_SPREAD_RULES_INPUT_LEN,
+                                    map(Pixel::parse, |pixel| {
+                                        rule_index |= rule_bit_mask * pixel.is_light() as usize;
+                                        rule_bit_mask <<= 1_u32;
+                                    }),
+                                ),
+                                tag(" => "),
+                            ))(input)?
+                            .0;
+
+                            let input: &str = map(Pixel::parse, |pixel| {
+                                plant_spread_rules.set(rule_index, pixel.is_light());
+                            })(input)?
+                            .0;
+
+                            Ok((input, ()))
+                        },
+                        opt(line_ending),
+                    ))(input)?
+                    .0;
+
+                    Ok((input, plant_spread_rules))
+                },
+            )),
+            |(
+                _,
+                (curr_pots_with_plants, next_pots_with_plants, pot_index_offset),
+                _,
+                _,
+                plant_spread_rules,
+            )| Self {
+                curr_pots_with_plants,
+                next_pots_with_plants,
+                pot_index_offset,
+                plant_spread_rules,
+            },
+        )(input)
     }
 }
 
 impl RunQuestions for Solution {
-    fn q1_internal(&mut self, args: &QuestionArgs) {
-        todo!();
+    /// Guessing q2 is going to be "okay, now 2000 generations".
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.pots_with_plants_sum_after_generations(Self::GENERATIONS));
     }
 
     fn q2_internal(&mut self, args: &QuestionArgs) {
@@ -111,12 +285,38 @@ impl<'i> TryFrom<&'i str> for Solution {
 mod tests {
     use {super::*, std::sync::OnceLock};
 
-    const SOLUTION_STRS: &'static [&'static str] = &[""];
+    const SOLUTION_STRS: &'static [&'static str] = &["\
+        initial state: #..#.#..##......###...###\n\
+        \n\
+        ...## => #\n\
+        ..#.. => #\n\
+        .#... => #\n\
+        .#.#. => #\n\
+        .#.## => #\n\
+        .##.. => #\n\
+        .#### => #\n\
+        #.#.# => #\n\
+        #.### => #\n\
+        ##.#. => #\n\
+        ##.## => #\n\
+        ###.. => #\n\
+        ###.# => #\n\
+        ####. => #\n"];
 
     fn solution(index: usize) -> &'static Solution {
         static ONCE_LOCK: OnceLock<Vec<Solution>> = OnceLock::new();
 
-        &ONCE_LOCK.get_or_init(|| vec![])[index]
+        &ONCE_LOCK.get_or_init(|| {
+            vec![Solution {
+                curr_pots_with_plants: vec![0_u32, 0b_1110001110000001100101001_u32],
+                next_pots_with_plants: Vec::new(),
+                pot_index_offset: 32_i32,
+                plant_spread_rules: bitarr![u32, Lsb0;
+                    0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0,
+                    1, 1, 0, 1, 1, 0
+                ],
+            }]
+        })[index]
     }
 
     #[test]
@@ -125,6 +325,140 @@ mod tests {
             assert_eq!(
                 Solution::try_from(solution_str).as_ref(),
                 Ok(solution(index))
+            );
+        }
+    }
+
+    #[test]
+    fn test_iter_pots_with_plants() {
+        for (index, pots_with_plants) in [vec![
+            0_i32, 3_i32, 5_i32, 8_i32, 9_i32, 16_i32, 17_i32, 18_i32, 22_i32, 23_i32, 24_i32,
+        ]]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(
+                solution(index)
+                    .iter_pots_with_plants()
+                    .collect::<Vec<i32>>(),
+                pots_with_plants
+            );
+        }
+    }
+
+    #[test]
+    fn test_next_generation() {
+        for (index, next_generations) in [vec![
+            bitvec![
+                0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0,
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+                1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0,
+                0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0,
+                0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0,
+                0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1,
+                0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1,
+                0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1,
+                1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0,
+                1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0,
+                1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 1, 0, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0,
+                0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0,
+                0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0,
+                0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0,
+            ],
+            bitvec![
+                0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1,
+                0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0,
+                0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0,
+            ],
+            bitvec![
+                0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 1,
+                0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0,
+            ],
+            bitvec![
+                0, 1, 0, 0, 1, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1,
+                0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0,
+            ],
+            bitvec![
+                0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0,
+                0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0,
+            ],
+        ]]
+        .into_iter()
+        .enumerate()
+        {
+            let mut solution: Solution = solution(index).clone();
+
+            for next_generation in next_generations {
+                assert_eq!(
+                    solution.iter_pots_with_plants().collect::<Vec<i32>>(),
+                    next_generation
+                        .iter_ones()
+                        .map(|index| index as i32 - 3_i32)
+                        .collect::<Vec<i32>>()
+                );
+
+                solution.next_generation();
+            }
+        }
+    }
+
+    #[test]
+    fn test_pots_with_plants_sum_after_generations() {
+        for (index, pots_with_plants_sum_after_generations) in [325_i32].into_iter().enumerate() {
+            assert_eq!(
+                solution(index).pots_with_plants_sum_after_generations(Solution::GENERATIONS),
+                pots_with_plants_sum_after_generations
             );
         }
     }
