@@ -33,3 +33,9 @@ impl From<Pixel> for bool {
         value.is_light()
     }
 }
+
+impl From<Pixel> for char {
+    fn from(value: Pixel) -> Self {
+        value as u8 as char
+    }
+}

@@ -411,6 +411,21 @@ macro_rules! pretty_assert_eq {
     }};
 }
 
+#[macro_export]
+macro_rules! define_super_trait {
+    {
+        $pub:vis trait $super_trait:ident
+            where Self : $first_trait:ident $( + $other_trait:ident )* $( , )?
+        {}
+    } => {
+        $pub trait $super_trait
+            where Self : $first_trait $( + $other_trait )*
+        {}
+
+        impl<T: $first_trait $( + $other_trait )*> $super_trait for T {}
+    }
+}
+
 /// Opens a memory-mapped UTF-8 file at a specified path, and passes in a `&str` over the file to a
 /// provided callback function
 ///
@@ -659,14 +674,34 @@ where
     }
 }
 
-pub trait SmallRangeInclusiveTraits: Clone + Default + Debug + PartialEq {}
+define_super_trait! {
+    pub trait SmallRangeInclusiveTraits where Self: Clone + Copy + Default + Debug + PartialEq {}
+}
 
-impl<T: Clone + Debug + Default + PartialEq> SmallRangeInclusiveTraits for T {}
-
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SmallRangeInclusive<T: SmallRangeInclusiveTraits> {
     pub start: T,
     pub end: T,
+}
+
+impl<T: SmallRangeInclusiveTraits> SmallRangeInclusive<T> {
+    pub const fn new(start: T, end: T) -> Self {
+        Self { start, end }
+    }
+
+    pub const fn as_range_inclusive(&self) -> RangeInclusive<T> {
+        self.start..=self.end
+    }
+
+    /// For compatibility with `range_inclusive_len`
+    pub const fn start(&self) -> &T {
+        &self.start
+    }
+
+    /// For compatibility with `range_inclusive_len`
+    pub const fn end(&self) -> &T {
+        &self.end
+    }
 }
 
 impl<T: SmallRangeInclusiveTraits> From<RangeInclusive<T>> for SmallRangeInclusive<T> {
@@ -684,7 +719,19 @@ impl<T: SmallRangeInclusiveTraits> From<SmallRangeInclusive<T>> for RangeInclusi
     }
 }
 
-impl<T: Copy + SmallRangeInclusiveTraits> Copy for SmallRangeInclusive<T> {}
+#[macro_export]
+macro_rules! const_range_inclusive_len {
+    ($range_inclusive:expr) => {{
+        let diff = *$range_inclusive.end() - *$range_inclusive.start() + 1;
+
+        #[allow(unused_comparisons)]
+        if diff < 0 {
+            0_usize
+        } else {
+            diff as usize
+        }
+    }};
+}
 
 pub trait ComputeHash {
     fn compute_hash(&self) -> u64;
@@ -1133,20 +1180,5 @@ pub fn div_break_on_overflow<I: PrimInt>(a: I, b: I) -> I {
 pub fn assert_eq_break<T: Debug + PartialEq>(left: T, right: T) {
     if left != right {
         assert_eq!(left, right);
-    }
-}
-
-#[macro_export]
-macro_rules! define_super_trait {
-    {
-        $pub:vis trait $super_trait:ident
-            where Self : $first_trait:ident $( + $other_trait:ident )* $( , )?
-        {}
-    } => {
-        $pub trait $super_trait
-            where Self : $first_trait $( + $other_trait )*
-        {}
-
-        impl<T: $first_trait $( + $other_trait )*> $super_trait for T {}
     }
 }
