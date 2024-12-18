@@ -96,7 +96,7 @@ Once both of your programs have terminated (regardless of what caused them to do
 type RegisterName = char;
 type RegisterIndexRaw = u8;
 type RegisterNameList = IdList<RegisterName, RegisterIndexRaw>;
-type RegisterIndex = TableIndex<RegisterIndexRaw>;
+type RegisterIndex = Index<RegisterIndexRaw>;
 
 fn parse_register<'i>(input: &'i str) -> IResult<&'i str, RegisterName> {
     satisfy(|c| c.is_ascii_lowercase())(input)

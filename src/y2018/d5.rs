@@ -66,7 +66,7 @@ type UnitRangeRangeIndex = u16;
 
 // The number of active `UnitRange`s is monotonically decreasing.
 type UnitRangeIndexRaw = u16;
-type UnitRangeIndex = TableIndex<UnitRangeIndexRaw>;
+type UnitRangeIndex = Index<UnitRangeIndexRaw>;
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 struct UnitRangeLink {

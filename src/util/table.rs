@@ -1,6 +1,5 @@
 use {
     crate::*,
-    num::{FromPrimitive, NumCast, PrimInt},
     std::mem::transmute,
     std::{
         fmt::{Debug, Formatter, Result as FmtResult},
@@ -10,24 +9,6 @@ use {
 
 define_super_trait! {
     pub trait TableIdTrait where Self: Clone + Eq + Ord + PartialEq + PartialOrd {}
-}
-
-pub trait TableIndexConstTrait {
-    const INVALID: Self;
-}
-
-macro_rules! impl_table_index_const_trait {
-    ( $( $index:ty, )* ) => { $(
-        impl TableIndexConstTrait for $index {
-            const INVALID: Self = !0;
-        }
-    )* };
-}
-
-impl_table_index_const_trait!(u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize,);
-
-define_super_trait! {
-    pub trait TableIndexTrait where Self: PrimInt + NumCast + FromPrimitive + TableIndexConstTrait {}
 }
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -42,71 +23,14 @@ impl<Id: Debug, Data: Debug> Debug for TableElement<Id, Data> {
     }
 }
 
-#[derive(Copy, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TableIndex<Index: TableIndexTrait>(Index);
-
-impl<Index: TableIndexTrait> TableIndex<Index> {
-    pub const INVALID: Self = Self::invalid();
-
-    pub const fn invalid() -> Self {
-        Self(Index::INVALID)
-    }
-
-    pub fn new(index: usize) -> Self {
-        Self(Index::from_usize(index).unwrap())
-    }
-
-    pub fn is_valid(self) -> bool {
-        self != Self::invalid()
-    }
-
-    pub fn get(self) -> usize {
-        assert!(self.is_valid());
-
-        self.0.to_usize().unwrap()
-    }
-
-    pub fn opt(self) -> Option<Self> {
-        self.is_valid().then_some(self)
-    }
-}
-
-impl<Index: TableIndexTrait + Debug> Debug for TableIndex<Index> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        if self.is_valid() {
-            f.write_fmt(format_args!("{:?}", self.0))
-        } else {
-            f.write_str("<invalid>")
-        }
-    }
-}
-
-impl<Index: TableIndexTrait> Default for TableIndex<Index> {
-    fn default() -> Self {
-        Self::invalid()
-    }
-}
-
-impl<Index: TableIndexTrait> From<usize> for TableIndex<Index> {
-    fn from(value: usize) -> Self {
-        Self::new(value)
-    }
-}
-
-impl<Index: TableIndexTrait> From<TableIndex<Index>> for usize {
-    fn from(value: TableIndex<Index>) -> Self {
-        value.get()
-    }
-}
-
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Default)]
-pub struct Table<Id: TableIdTrait, Data, Index: TableIndexTrait = usize> {
+pub struct Table<Id: TableIdTrait, Data, IndexRaw: IndexRawTrait = usize> {
     table: Vec<TableElement<Id, Data>>,
-    _index: PhantomData<Index>,
+    _index: PhantomData<IndexRaw>,
 }
 
-impl<Id: TableIdTrait, Data, Index: TableIndexTrait> Table<Id, Data, Index> {
+impl<Id: TableIdTrait, Data, IndexRaw: IndexRawTrait> Table<Id, Data, IndexRaw> {
     pub fn new() -> Self
     where
         Self: Default,
@@ -124,11 +48,11 @@ impl<Id: TableIdTrait, Data, Index: TableIndexTrait> Table<Id, Data, Index> {
         &mut self.table
     }
 
-    pub fn find_or_add_index(&mut self, id: &Id) -> TableIndex<Index>
+    pub fn find_or_add_index(&mut self, id: &Id) -> Index<IndexRaw>
     where
         Data: Default,
     {
-        let mut index: TableIndex<Index> = self.find_index(id);
+        let mut index: Index<IndexRaw> = self.find_index(id);
 
         if !index.is_valid() {
             index = self.table.len().into();
@@ -141,15 +65,15 @@ impl<Id: TableIdTrait, Data, Index: TableIndexTrait> Table<Id, Data, Index> {
         index
     }
 
-    pub fn find_index(&self, id: &Id) -> TableIndex<Index> {
+    pub fn find_index(&self, id: &Id) -> Index<IndexRaw> {
         self.table
             .iter()
             .position(|table_element| table_element.id == *id)
-            .map_or_else(TableIndex::default, TableIndex::new)
+            .map_or_else(Index::default, Index::new)
     }
 }
 
-impl<Id: TableIdTrait + Debug, Data: Debug, Index: TableIndexTrait + Debug> Debug
+impl<Id: TableIdTrait + Debug, Data: Debug, Index: IndexRawTrait + Debug> Debug
     for Table<Id, Data, Index>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
@@ -160,7 +84,7 @@ impl<Id: TableIdTrait + Debug, Data: Debug, Index: TableIndexTrait + Debug> Debu
     }
 }
 
-impl<Id: TableIdTrait, Data, Index: TableIndexTrait> TryFrom<Vec<TableElement<Id, Data>>>
+impl<Id: TableIdTrait, Data, Index: IndexRawTrait> TryFrom<Vec<TableElement<Id, Data>>>
     for Table<Id, Data, Index>
 {
     type Error = Box<String>;
@@ -190,7 +114,7 @@ impl<Id: TableIdTrait, Data, Index: TableIndexTrait> TryFrom<Vec<TableElement<Id
 
 pub type IdList<Id, Index = usize> = Table<Id, (), Index>;
 
-impl<Id: TableIdTrait, Index: TableIndexTrait> IdList<Id, Index> {
+impl<Id: TableIdTrait, Index: IndexRawTrait> IdList<Id, Index> {
     pub fn as_id_slice(&self) -> &[Id] {
         // Why can't you play nice, rust compiler?
         // use {
@@ -203,7 +127,7 @@ impl<Id: TableIdTrait, Index: TableIndexTrait> IdList<Id, Index> {
     }
 }
 
-impl<Id: TableIdTrait, Index: TableIndexTrait> TryFrom<Vec<Id>> for IdList<Id, Index> {
+impl<Id: TableIdTrait, Index: IndexRawTrait> TryFrom<Vec<Id>> for IdList<Id, Index> {
     type Error = Box<String>;
 
     fn try_from(ids: Vec<Id>) -> Result<Self, Self::Error> {

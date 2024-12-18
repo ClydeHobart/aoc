@@ -69,7 +69,7 @@ What is the ID of the only claim that doesn't overlap? */
 
 type ClaimId = u16;
 type ClaimIndexRaw = u16;
-type ClaimIndex = TableIndex<ClaimIndexRaw>;
+type ClaimIndex = Index<ClaimIndexRaw>;
 type ClaimTableElement = TableElement<ClaimId, Claim>;
 type ClaimTable = Table<ClaimId, Claim, ClaimIndexRaw>;
 

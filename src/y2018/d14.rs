@@ -1,14 +1,6 @@
 use {
     crate::*,
-    nom::{
-        bytes::complete::tag,
-        character::complete::line_ending,
-        combinator::{map, map_res, opt},
-        error::Error,
-        multi::many0,
-        sequence::{preceded, terminated, tuple},
-        Err, IResult,
-    },
+    nom::{combinator::map, error::Error, Err, IResult},
 };
 
 /* --- Day 14: Chocolate Charts ---
@@ -51,24 +43,111 @@ The Elves think their skill will improve after making a few recipes (your puzzle
     After 18 recipes, the scores of the next ten would be 9251071085.
     After 2018 recipes, the scores of the next ten would be 5941429882.
 
-What are the scores of the ten recipes immediately after the number of recipes in your puzzle input? */
+What are the scores of the ten recipes immediately after the number of recipes in your puzzle input?
+
+--- Part Two ---
+
+As it turns out, you got the Elves' plan backwards. They actually want to know how many recipes appear on the scoreboard to the left of the first recipes whose scores are the digits from your puzzle input.
+
+    51589 first appears after 9 recipes.
+    01245 first appears after 5 recipes.
+    92510 first appears after 18 recipes.
+    59414 first appears after 2018 recipes.
+
+How many recipes appear on the scoreboard to the left of the score sequence in your puzzle input? */
+
+struct RecipeTracker {
+    quality_scores: String,
+    elf_a: usize,
+    elf_b: usize,
+}
+
+impl RecipeTracker {
+    const QUALITY_SCORE_0: u8 = 3_u8;
+    const QUALITY_SCORE_1: u8 = 7_u8;
+
+    fn new() -> Self {
+        Self {
+            quality_scores: [
+                Self::byte_to_char(Self::QUALITY_SCORE_0),
+                Self::byte_to_char(Self::QUALITY_SCORE_1),
+            ]
+            .into_iter()
+            .collect(),
+            elf_a: 0_usize,
+            elf_b: 1_usize,
+        }
+    }
+
+    const fn byte_to_char(b: u8) -> char {
+        (b + b'0') as char
+    }
+
+    fn add_recipes(&mut self) {
+        let quality_score_a: u8 = self.quality_scores.as_bytes()[self.elf_a] - b'0';
+        let quality_score_b: u8 = self.quality_scores.as_bytes()[self.elf_b] - b'0';
+        let quality_score_sum: u8 = quality_score_a + quality_score_b;
+
+        if quality_score_sum >= 10_u8 {
+            self.quality_scores.push(Self::byte_to_char(1_u8));
+        }
+
+        self.quality_scores
+            .push(Self::byte_to_char(quality_score_sum % 10_u8));
+        self.elf_a = (self.elf_a + quality_score_a as usize + 1_usize) % self.quality_scores.len();
+        self.elf_b = (self.elf_b + quality_score_b as usize + 1_usize) % self.quality_scores.len();
+    }
+}
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct Solution;
+pub struct Solution(usize);
+
+impl Solution {
+    fn ten_scores_after_improvement(&self) -> String {
+        let mut recipe_tracker: RecipeTracker = RecipeTracker::new();
+        let needed_quality_scores: usize = self.0 + 10_usize;
+
+        while recipe_tracker.quality_scores.len() < needed_quality_scores {
+            recipe_tracker.add_recipes();
+        }
+
+        recipe_tracker.quality_scores[self.0..self.0 + 10_usize].into()
+    }
+
+    fn recipes_to_the_left_of_input(&self) -> usize {
+        let input: String = format!("{}", self.0);
+        let input_len_plus_one: usize = input.len() + 1_usize;
+
+        let mut recipe_tracker: RecipeTracker = RecipeTracker::new();
+
+        while !recipe_tracker.quality_scores[recipe_tracker
+            .quality_scores
+            .len()
+            .saturating_sub(input_len_plus_one)..]
+            .contains(&input)
+        {
+            recipe_tracker.add_recipes();
+        }
+
+        recipe_tracker.quality_scores.find(&input).unwrap()
+    }
+}
 
 impl Parse for Solution {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
-        todo!()
+        map(parse_integer, Self)(input)
     }
 }
 
 impl RunQuestions for Solution {
-    fn q1_internal(&mut self, args: &QuestionArgs) {
-        todo!();
+    /// Easy.
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.ten_scores_after_improvement());
     }
 
-    fn q2_internal(&mut self, args: &QuestionArgs) {
-        todo!();
+    /// This question was phrased horribly.
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.recipes_to_the_left_of_input());
     }
 }
 
@@ -84,12 +163,19 @@ impl<'i> TryFrom<&'i str> for Solution {
 mod tests {
     use {super::*, std::sync::OnceLock};
 
-    const SOLUTION_STRS: &'static [&'static str] = &[""];
+    const SOLUTION_STRS: &'static [&'static str] = &["9", "5", "18", "2018"];
 
     fn solution(index: usize) -> &'static Solution {
         static ONCE_LOCK: OnceLock<Vec<Solution>> = OnceLock::new();
 
-        &ONCE_LOCK.get_or_init(|| vec![])[index]
+        &ONCE_LOCK.get_or_init(|| {
+            vec![
+                Solution(9_usize),
+                Solution(5_usize),
+                Solution(18_usize),
+                Solution(2018_usize),
+            ]
+        })[index]
     }
 
     #[test]
@@ -98,6 +184,20 @@ mod tests {
             assert_eq!(
                 Solution::try_from(solution_str).as_ref(),
                 Ok(solution(index))
+            );
+        }
+    }
+
+    #[test]
+    fn test_ten_scores_after_improvement() {
+        for (index, ten_scores_after_improvement) in
+            ["5158916779", "0124515891", "9251071085", "5941429882"]
+                .into_iter()
+                .enumerate()
+        {
+            assert_eq!(
+                solution(index).ten_scores_after_improvement(),
+                ten_scores_after_improvement
             );
         }
     }

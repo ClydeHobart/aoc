@@ -2,6 +2,7 @@ pub use {direction::*, hex::*};
 
 use {
     super::*,
+    bitvec::prelude::*,
     glam::{BVec2, IVec2},
     nom::{
         character::complete::line_ending,
@@ -15,7 +16,7 @@ use {
         fmt::{Debug, DebugList, Formatter, Result as FmtResult, Write},
         iter::Peekable,
         mem::transmute,
-        ops::{Range, RangeInclusive},
+        ops::{Add, Range, RangeInclusive},
         str::{from_utf8, Lines},
     },
     strum::IntoEnumIterator,
@@ -23,14 +24,20 @@ use {
 
 macro_rules! define_direction {
     {
-        $(#[$meta:meta])*
+        $( #[$meta:meta] )*
         $vis:vis enum $direction:ident {
-            $( $variant:ident, )*
+            $(
+                $( #[$variant_meta:meta] )?
+                $variant:ident,
+            )*
         }
     } => {
         $(#[$meta])*
         $vis enum $direction {
-            $( $variant, )*
+            $(
+                $( #[$variant_meta] )?
+                $variant,
+            )*
         }
 
         const VECS: [IVec2; $direction::COUNT] = [
@@ -48,9 +55,10 @@ mod direction {
     };
 
     define_direction! {
-        #[derive(Copy, Clone, Debug, EnumCount, EnumIter, Eq, Hash, PartialEq)]
+        #[derive(Copy, Clone, Debug, Default, EnumCount, EnumIter, Eq, Hash, PartialEq)]
         #[repr(u8)]
         pub enum Direction {
+            #[default]
             North,
             East,
             South,
@@ -102,6 +110,10 @@ mod direction {
             }
         }
 
+        pub const fn is_north_or_south(self) -> bool {
+            (self as u8 & 1_u8) == 0_u8
+        }
+
         const fn vec_internal(self) -> IVec2 {
             match self {
                 Self::North => IVec2::NEG_Y,
@@ -109,6 +121,14 @@ mod direction {
                 Self::South => IVec2::Y,
                 Self::West => IVec2::NEG_X,
             }
+        }
+    }
+
+    impl Add<Turn> for Direction {
+        type Output = Self;
+
+        fn add(self, rhs: Turn) -> Self::Output {
+            (self as u8 + rhs as u8).into()
         }
     }
 
@@ -173,6 +193,60 @@ mod direction {
                 let abs: IVec2 = delta.abs();
 
                 Ok((delta / (abs.x + abs.y)).try_into().unwrap())
+            }
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, Default, EnumCount, EnumIter, Eq, Hash, PartialEq)]
+    #[repr(u8)]
+    pub enum Turn {
+        Left = Direction::West as u8,
+        #[default]
+        Straight = Direction::North as u8,
+        Right = Direction::East as u8,
+    }
+
+    impl Turn {
+        pub fn next(self) -> Self {
+            match self {
+                Self::Left => Self::Straight,
+                Self::Straight => Self::Right,
+                Self::Right => Self::Left,
+            }
+        }
+
+        pub fn prev(self) -> Self {
+            match self {
+                Self::Left => Self::Right,
+                Self::Straight => Self::Left,
+                Self::Right => Self::Straight,
+            }
+        }
+
+        pub fn non_straight_opt(self) -> Option<Self> {
+            (self != Self::Straight).then_some(self)
+        }
+    }
+
+    impl From<Turn> for Direction {
+        fn from(value: Turn) -> Self {
+            match value {
+                Turn::Left => Self::West,
+                Turn::Straight => Self::North,
+                Turn::Right => Self::East,
+            }
+        }
+    }
+
+    impl TryFrom<Direction> for Turn {
+        type Error = ();
+
+        fn try_from(value: Direction) -> Result<Self, Self::Error> {
+            match value {
+                Direction::North => Ok(Self::Straight),
+                Direction::East => Ok(Self::Right),
+                Direction::South => Err(()),
+                Direction::West => Ok(Self::Left),
             }
         }
     }
@@ -333,10 +407,19 @@ pub fn abs_sum_2d(pos: IVec2) -> i32 {
     abs.x + abs.y
 }
 
+pub fn grid_2d_contains(pos: IVec2, dimensions: IVec2) -> bool {
+    (pos.cmpge(IVec2::ZERO) & pos.cmplt(dimensions)).all()
+}
+
 pub fn grid_2d_pos_from_index_and_dimensions(index: usize, dimensions: IVec2) -> IVec2 {
     let x: usize = dimensions.x as usize;
 
     IVec2::new((index % x) as i32, (index / x) as i32)
+}
+
+pub fn grid_2d_try_index_from_pos_and_dimensions(pos: IVec2, dimensions: IVec2) -> Option<usize> {
+    grid_2d_contains(pos, dimensions)
+        .then(|| pos.y as usize * dimensions.x as usize + pos.x as usize)
 }
 
 pub struct Grid2D<T> {
@@ -390,11 +473,6 @@ impl<T> Grid2D<T> {
     }
 
     #[inline]
-    pub fn cells_mut(&mut self) -> &mut [T] {
-        &mut self.cells
-    }
-
-    #[inline]
     pub fn dimensions(&self) -> IVec2 {
         self.dimensions
     }
@@ -406,7 +484,7 @@ impl<T> Grid2D<T> {
 
     #[inline]
     pub fn contains(&self, pos: IVec2) -> bool {
-        pos.cmpge(IVec2::ZERO).all() && pos.cmplt(self.dimensions).all()
+        grid_2d_contains(pos, self.dimensions)
     }
 
     pub fn is_border(&self, pos: IVec2) -> bool {
@@ -420,11 +498,7 @@ impl<T> Grid2D<T> {
     }
 
     pub fn try_index_from_pos(&self, pos: IVec2) -> Option<usize> {
-        if self.contains(pos) {
-            Some(self.index_from_pos(pos))
-        } else {
-            None
-        }
+        grid_2d_try_index_from_pos_and_dimensions(pos, self.dimensions)
     }
 
     pub fn pos_from_index(&self, index: usize) -> IVec2 {
@@ -441,11 +515,6 @@ impl<T> Grid2D<T> {
             .map(|index: usize| &self.cells[index])
     }
 
-    pub fn get_mut(&mut self, pos: IVec2) -> Option<&mut T> {
-        self.try_index_from_pos(pos)
-            .map(|index: usize| &mut self.cells[index])
-    }
-
     pub fn iter_positions(&self) -> impl Iterator<Item = IVec2> {
         let dimensions: IVec2 = self.dimensions;
 
@@ -454,6 +523,44 @@ impl<T> Grid2D<T> {
             .flat_map(move |pos| {
                 CellIter2D::try_from(pos..IVec2::new(dimensions.x, pos.y)).unwrap()
             })
+    }
+
+    pub fn iter_filtered_positions<'a, P: Fn(&T) -> bool + 'a>(
+        &'a self,
+        predicate: P,
+    ) -> impl Iterator<Item = IVec2> + 'a {
+        self.cells
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, cell)| predicate(cell).then(|| self.pos_from_index(index)))
+    }
+
+    pub fn iter_positions_with_cell<'a>(&'a self, target: &'a T) -> impl Iterator<Item = IVec2> + 'a
+    where
+        T: PartialEq,
+    {
+        self.iter_filtered_positions(|cell| *cell == *target)
+    }
+
+    pub fn try_find_single_position_with_cell(&self, target: &T) -> Option<IVec2>
+    where
+        T: PartialEq,
+    {
+        self.iter_positions_with_cell(target)
+            .try_fold(None, |prev_pos, curr_pos| {
+                prev_pos.is_none().then_some(Some(curr_pos))
+            })
+            .flatten()
+    }
+
+    #[inline]
+    pub fn cells_mut(&mut self) -> &mut [T] {
+        &mut self.cells
+    }
+
+    pub fn get_mut(&mut self, pos: IVec2) -> Option<&mut T> {
+        self.try_index_from_pos(pos)
+            .map(|index: usize| &mut self.cells[index])
     }
 
     pub fn resize_rows(&mut self, new_row_len: usize, value: T)
@@ -846,6 +953,109 @@ pub fn manhattan_magnitude_2d(pos: IVec2) -> i32 {
 
 pub fn manhattan_distance_2d(a: IVec2, b: IVec2) -> i32 {
     manhattan_magnitude_2d(a - b)
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct SmallPos {
+    pub x: u8,
+    pub y: u8,
+}
+
+impl SmallPos {
+    pub const MIN_POS: IVec2 = IVec2::ZERO;
+    pub const MAX_POS: IVec2 = IVec2::new(u8::MAX as i32, u8::MAX as i32);
+    pub const MAX_DIMENSIONS: IVec2 = IVec2::new(Self::MAX_POS.x + 1_i32, Self::MAX_POS.y + 1_i32);
+
+    /// SAFETY: This will panic if either component can't be converted to a `u8`
+    pub unsafe fn from_pos_unsafe(pos: IVec2) -> Self {
+        Self {
+            x: pos.x as u8,
+            y: pos.y as u8,
+        }
+    }
+
+    pub fn is_pos_valid(pos: IVec2) -> bool {
+        grid_2d_contains(pos, Self::MAX_DIMENSIONS)
+    }
+
+    pub fn try_from_pos(pos: IVec2) -> Option<Self> {
+        // SAFETY: `pos` has been verified.
+        Self::is_pos_valid(pos).then(|| unsafe { Self::from_pos_unsafe(pos) })
+    }
+
+    pub fn from_sortable_index(sortable_index: u16) -> Self {
+        Self {
+            x: (sortable_index & 0xFF_u16) as u8,
+            y: (sortable_index >> u8::BITS) as u8,
+        }
+    }
+
+    pub fn get(self) -> IVec2 {
+        IVec2::new(self.x as i32, self.y as i32)
+    }
+
+    pub fn sortable_index_from_components(x: u8, y: u8) -> u16 {
+        ((y as u16) << u8::BITS) | x as u16
+    }
+
+    pub fn sortable_index(self) -> u16 {
+        Self::sortable_index_from_components(self.x, self.y)
+    }
+
+    pub unsafe fn sortable_index_from_pos_unsafe(pos: IVec2) -> u16 {
+        Self::sortable_index_from_components(pos.x as u8, pos.y as u8)
+    }
+
+    pub fn try_set(&mut self, pos: IVec2) -> bool {
+        if Self::is_pos_valid(pos) {
+            // SAFETY: `pos` is valid.
+            *self = unsafe { Self::from_pos_unsafe(pos) };
+
+            true
+        } else {
+            false
+        }
+    }
+}
+
+pub type SmallPosBitArr =
+    BitArr!(for (SmallPos::MAX_DIMENSIONS.x * SmallPos::MAX_DIMENSIONS.y) as usize);
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct SmallPosAndDir {
+    pub pos: SmallPos,
+    pub dir: Direction,
+}
+
+impl SmallPosAndDir {
+    /// SAFETY: This will panic if either component can't be converted to a `u8`
+    pub unsafe fn from_pos_and_dir_unsafe(pos: IVec2, dir: Direction) -> Self {
+        Self {
+            pos: SmallPos::from_pos_unsafe(pos),
+            dir,
+        }
+    }
+
+    pub fn try_from_pos_and_dir(pos: IVec2, dir: Direction) -> Option<Self> {
+        // SAFETY: `pos` has been verified.
+        SmallPos::is_pos_valid(pos).then(|| unsafe { Self::from_pos_and_dir_unsafe(pos, dir) })
+    }
+
+    pub fn from_sortable_index_and_dir(sortable_index: u16, dir: Direction) -> Self {
+        Self {
+            pos: SmallPos::from_sortable_index(sortable_index),
+            dir,
+        }
+    }
+}
+
+pub fn sortable_index_from_pos(pos: IVec2) -> u64 {
+    const TOGGLE_MASK: u64 = (1_u64 << (u64::BITS - 1_u32)) | (1_u64 << (u32::BITS - 1_u32));
+
+    // SAFETY: Trivial.
+    ((unsafe { transmute::<i32, u32>(pos.y) } as u64) << u32::BITS
+        | unsafe { transmute::<i32, u32>(pos.x) } as u64)
+        ^ TOGGLE_MASK
 }
 
 #[cfg(test)]

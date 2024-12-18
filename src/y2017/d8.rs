@@ -42,7 +42,7 @@ To be safe, the CPU also needs to know the highest value held in any register du
 
 type RegisterName = StaticString<{ Solution::REGISTER_NAME_LEN }>;
 type RegisterIndexRaw = u16;
-type RegisterIndex = TableIndex<RegisterIndexRaw>;
+type RegisterIndex = Index<RegisterIndexRaw>;
 type RegisterNameList = IdList<RegisterName, RegisterIndexRaw>;
 
 #[cfg_attr(test, derive(Debug, PartialEq))]

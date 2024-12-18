@@ -2,7 +2,9 @@ pub use {
     graph::*,
     grid::*,
     imat3::*,
+    index::*,
     letter_counts::*,
+    linked_list::*,
     nom::{error::Error as NomError, Err as NomErr},
     pixel::Pixel,
     region_tree::*,
@@ -15,6 +17,7 @@ use {
     glam::IVec3,
     memmap::Mmap,
     nom::{
+        branch::alt,
         bytes::complete::{tag, take},
         character::complete::digit1,
         combinator::{all_consuming, map, map_res, opt, rest},
@@ -43,7 +46,9 @@ use std::rc::Rc;
 mod graph;
 mod grid;
 mod imat3;
+mod index;
 mod letter_counts;
+mod linked_list;
 pub mod minimal_value_with_all_digit_pairs;
 pub mod pixel;
 mod region_tree;
@@ -89,7 +94,7 @@ pub struct Args {
 }
 
 impl Args {
-    fn try_to_intermediate<I>(&self) -> Option<I>
+    pub fn try_to_intermediate<I>(&self) -> Option<I>
     where
         I: for<'a> TryFrom<&'a str>,
         for<'a> <I as TryFrom<&'a str>>::Error: Debug,
@@ -554,13 +559,10 @@ pub fn validate_prefix<'s, E, F: FnOnce(&'s str) -> E>(
 pub fn parse_integer<'i, I: FromStr + Integer>(input: &'i str) -> IResult<&'i str, I> {
     map(
         tuple((
-            map(opt(tag("-")), |minus| {
-                if minus.is_some() {
-                    I::zero() - I::one()
-                } else {
-                    I::one()
-                }
-            }),
+            alt((
+                map(tag("-"), |_| I::zero() - I::one()),
+                map(opt(tag("+")), |_| I::one()),
+            )),
             map_res(digit1, I::from_str),
         )),
         |(sign, bound)| sign * bound,

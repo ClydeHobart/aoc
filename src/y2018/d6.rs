@@ -105,7 +105,7 @@ Your actual region will need to be much larger than this example, though, instea
 What is the size of the region containing all locations which have a total distance to all given coordinates of less than 10000? */
 
 type CoordinateIndexRaw = u8;
-type CoordinateIndex = TableIndex<CoordinateIndexRaw>;
+type CoordinateIndex = Index<CoordinateIndexRaw>;
 
 #[derive(Clone, Copy, Default, PartialEq)]
 struct CoordinateIndexPixel {

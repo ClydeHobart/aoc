@@ -62,7 +62,7 @@ So, in this example, the correct order is CABDFE.
 In what order should the steps in your instructions be completed? */
 
 type StepIndexRawRaw = u8;
-type StepIndexRaw = TableIndex<StepIndexRawRaw>;
+type StepIndexRaw = Index<StepIndexRawRaw>;
 
 #[derive(Clone, Copy, Deref, DerefMut, Default, Eq, Ord, PartialEq, PartialOrd)]
 struct StepIndex(StepIndexRaw);

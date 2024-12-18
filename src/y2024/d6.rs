@@ -232,39 +232,13 @@ impl Cell {
     }
 }
 
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-struct GuardPosAndDir {
-    x: u8,
-    y: u8,
-    dir: Direction,
-}
-
-impl GuardPosAndDir {
-    const MAX_POS: IVec2 = IVec2::new(u8::MAX as i32, u8::MAX as i32);
-    const MAX_DIMENSIONS: IVec2 = IVec2::new(Self::MAX_POS.x + 1_i32, Self::MAX_POS.y + 1_i32);
-
-    /// SAFETY: This will panic if either component can't be converted to a `u8`
-    unsafe fn from_pos_and_dir_unsafe(pos: IVec2, dir: Direction) -> Self {
-        Self {
-            x: pos.x as u8,
-            y: pos.y as u8,
-            dir,
-        }
-    }
-
-    fn pos(self) -> IVec2 {
-        IVec2::new(self.x as i32, self.y as i32)
-    }
-}
-
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Clone)]
 pub struct Solution {
     grid: Grid2D<Cell>,
     guard_pos: IVec2,
     guard_dir: Direction,
-    guard_history: HashSet<GuardPosAndDir>,
+    guard_history: HashSet<SmallPosAndDir>,
 }
 
 impl Solution {
@@ -282,7 +256,7 @@ impl Solution {
 
         if paint_history {
             for prev_guard_pos_and_dir in &self.guard_history {
-                *grid.get_mut(prev_guard_pos_and_dir.pos()).unwrap() = Cell::PrevGuardPos;
+                *grid.get_mut(prev_guard_pos_and_dir.pos.get()).unwrap() = Cell::PrevGuardPos;
             }
         }
 
@@ -312,8 +286,8 @@ impl Solution {
     }
 
     /// SAFETY: It is the caller's responsibility to ensure the guard is currently in the grid.
-    unsafe fn guard_pos_and_dir_unsafe(&self) -> GuardPosAndDir {
-        GuardPosAndDir::from_pos_and_dir_unsafe(self.guard_pos, self.guard_dir)
+    unsafe fn guard_pos_and_dir_unsafe(&self) -> SmallPosAndDir {
+        SmallPosAndDir::from_pos_and_dir_unsafe(self.guard_pos, self.guard_dir)
     }
 
     fn count_new_obstacle_positions_that_result_in_cycles(&self) -> usize {
@@ -399,11 +373,7 @@ impl Parse for Solution {
                     .then_some(guard_pos_and_dir)
                 })
                 .flatten()
-                .filter(|_| {
-                    grid.dimensions()
-                        .cmple(GuardPosAndDir::MAX_DIMENSIONS)
-                        .all()
-                })
+                .filter(|_| grid.dimensions().cmple(SmallPos::MAX_DIMENSIONS).all())
                 .map(|(guard_pos, guard_dir)| {
                     *grid.get_mut(guard_pos).unwrap() = Cell::Empty;
 
@@ -413,7 +383,7 @@ impl Parse for Solution {
                         guard_dir,
                         // SAFETY: The guard is in the grid.
                         guard_history: [unsafe {
-                            GuardPosAndDir::from_pos_and_dir_unsafe(guard_pos, guard_dir)
+                            SmallPosAndDir::from_pos_and_dir_unsafe(guard_pos, guard_dir)
                         }]
                         .into(),
                     }
@@ -487,7 +457,7 @@ mod tests {
                 guard_dir: Direction::North,
                 // SAFETY: The position is within the acceptable bounds
                 guard_history: [unsafe {
-                    GuardPosAndDir::from_pos_and_dir_unsafe(
+                    SmallPosAndDir::from_pos_and_dir_unsafe(
                         IVec2::new(4_i32, 6_i32),
                         Direction::North,
                     )

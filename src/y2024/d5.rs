@@ -116,7 +116,7 @@ type PageIndexRaw = u8;
 
 const_assert!(PageIndexRaw::MAX as usize >= PageData::DISTINCT_ID_COUNT);
 
-type PageIndex = TableIndex<PageIndexRaw>;
+type PageIndex = Index<PageIndexRaw>;
 type PageBitArray = BitArr!(for PageData::DISTINCT_ID_COUNT, in u32);
 
 #[cfg_attr(test, derive(Debug, PartialEq))]

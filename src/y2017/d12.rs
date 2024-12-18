@@ -58,7 +58,7 @@ In the example above, there were 2 groups: one consisting of programs 0,2,3,4,5,
 
 How many groups are there in total? */
 
-type ProgramIndex = TableIndex<u16>;
+type ProgramIndex = Index<u16>;
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 struct Program {

@@ -46,6 +46,8 @@ pub trait AStar: Sized {
     fn path_to(&self, vertex: &Self::Vertex) -> Vec<Self::Vertex>;
     fn cost_from_start(&self, vertex: &Self::Vertex) -> Self::Cost;
     fn heuristic(&self, vertex: &Self::Vertex) -> Self::Cost;
+
+    /// The cost is from `vertex` to the neighbor.
     fn neighbors(
         &self,
         vertex: &Self::Vertex,

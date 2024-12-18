@@ -258,7 +258,7 @@ impl<S: Parse + Default> Parse for State<S> {
 }
 
 type StateIndexRaw = u8;
-type StateIndex = TableIndex<StateIndexRaw>;
+type StateIndex = Index<StateIndexRaw>;
 type StateTable = Table<StateId, State, StateIndexRaw>;
 
 type RuntimeStateBitsRaw = usize;

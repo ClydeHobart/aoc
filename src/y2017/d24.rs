@@ -159,7 +159,7 @@ impl Parse for Component {
 }
 
 type ComponentIndexRaw = u8;
-type ComponentIndex = TableIndex<ComponentIndexRaw>;
+type ComponentIndex = Index<ComponentIndexRaw>;
 type ComponentList = IdList<Component, ComponentIndexRaw>;
 type ComponentBitArr = BitArr!(for Solution::MAX_COMPONENTS_LEN, in u32);
 
