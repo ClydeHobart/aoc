@@ -188,12 +188,12 @@ impl Solution {
         let mut prime_factorization: HashMap<u32, u32> = HashMap::new();
 
         for prime_factor in self.iter_ghost_start_indices().flat_map(|start_index| {
-            iter_prime_factors(self.steps_internal(start_index, Node::is_ghost_end) as u32)
+            iter_prime_factors(self.steps_internal(start_index, Node::is_ghost_end))
         }) {
-            if let Some(exponent) = prime_factorization.get_mut(&prime_factor.prime) {
-                *exponent = (*exponent).max(prime_factor.exponent);
+            if let Some(exponent) = prime_factorization.get_mut(&(prime_factor.prime as u32)) {
+                *exponent = (*exponent).max(prime_factor.exponent as u32);
             } else {
-                prime_factorization.insert(prime_factor.prime, prime_factor.exponent);
+                prime_factorization.insert(prime_factor.prime as u32, prime_factor.exponent as u32);
             }
         }
 

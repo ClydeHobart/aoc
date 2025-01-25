@@ -75,6 +75,10 @@ mod direction {
         pub const MASK: u8 = Self::COUNT_U8 - 1_u8;
         pub const HALF_COUNT: u8 = Self::COUNT_U8 / 2_u8;
         pub const PREV_DELTA: u8 = Self::COUNT_U8 - 1_u8;
+        pub const UP: Self = Self::North;
+        pub const DOWN: Self = Self::South;
+        pub const LEFT: Self = Self::West;
+        pub const RIGHT: Self = Self::East;
 
         #[inline]
         pub const fn vec(self) -> IVec2 {
@@ -513,6 +517,13 @@ impl<T> Grid2D<T> {
     pub fn get(&self, pos: IVec2) -> Option<&T> {
         self.try_index_from_pos(pos)
             .map(|index: usize| &self.cells[index])
+    }
+
+    pub fn iter_positions_and_cells(&self) -> impl Iterator<Item = (IVec2, &T)> + '_ {
+        self.cells
+            .iter()
+            .enumerate()
+            .map(|(index, cell)| (self.pos_from_index(index), cell))
     }
 
     pub fn iter_positions(&self) -> impl Iterator<Item = IVec2> {
@@ -974,6 +985,10 @@ impl SmallPos {
         }
     }
 
+    pub fn are_dimensions_valid(dimensions: IVec2) -> bool {
+        dimensions.cmple(Self::MAX_DIMENSIONS).all()
+    }
+
     pub fn is_pos_valid(pos: IVec2) -> bool {
         grid_2d_contains(pos, Self::MAX_DIMENSIONS)
     }
@@ -1015,6 +1030,18 @@ impl SmallPos {
         } else {
             false
         }
+    }
+}
+
+impl Ord for SmallPos {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.sortable_index().cmp(&other.sortable_index())
+    }
+}
+
+impl PartialOrd for SmallPos {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 

@@ -4,13 +4,151 @@ use {
     std::{
         cmp::Ordering,
         collections::{BinaryHeap, HashSet, VecDeque},
-        fmt::Debug,
         hash::Hash,
         iter::from_fn,
         mem::take,
         ops::Add,
     },
 };
+
+pub struct DepthFirstSearchState<Vertex> {
+    stack: Vec<Vertex>,
+    explored: HashSet<Vertex>,
+    neighbors: Vec<Vertex>,
+}
+
+impl<Vertex> DepthFirstSearchState<Vertex> {
+    fn clear(&mut self) {
+        self.stack.clear();
+        self.explored.clear();
+        self.neighbors.clear();
+    }
+}
+
+impl<Vertex> Default for DepthFirstSearchState<Vertex> {
+    fn default() -> Self {
+        Self {
+            stack: Default::default(),
+            explored: Default::default(),
+            neighbors: Default::default(),
+        }
+    }
+}
+
+pub trait DepthFirstSearch: Sized {
+    type Vertex: Clone + Eq + Hash;
+
+    fn start(&self) -> &Self::Vertex;
+    fn is_end(&self, vertex: &Self::Vertex) -> bool;
+    fn path_to(&self, vertex: &Self::Vertex) -> Vec<Self::Vertex>;
+    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>);
+    fn update_parent(&mut self, from: &Self::Vertex, to: &Self::Vertex);
+    fn reset(&mut self);
+
+    fn run_internal(
+        &mut self,
+        state: &mut DepthFirstSearchState<Self::Vertex>,
+    ) -> Option<Vec<Self::Vertex>> {
+        self.reset();
+
+        state.clear();
+
+        let start: Self::Vertex = self.start().clone();
+        state.explored.insert(start.clone());
+        state.stack.push(start);
+
+        while let Some(current) = state.stack.pop() {
+            if self.is_end(&current) {
+                return Some(self.path_to(&current));
+            }
+
+            self.neighbors(&current, &mut state.neighbors);
+
+            for neighbor in state.neighbors.drain(..) {
+                if state.explored.insert(neighbor.clone()) {
+                    self.update_parent(&current, &neighbor);
+                    state.stack.push(neighbor);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn run(&mut self) -> Option<Vec<Self::Vertex>> {
+        self.run_internal(&mut DepthFirstSearchState::default())
+    }
+}
+
+pub struct BreadthFirstSearchState<Vertex> {
+    queue: VecDeque<Vertex>,
+    explored: HashSet<Vertex>,
+    neighbors: Vec<Vertex>,
+}
+
+impl<Vertex> BreadthFirstSearchState<Vertex> {
+    fn clear(&mut self) {
+        self.queue.clear();
+        self.explored.clear();
+        self.neighbors.clear();
+    }
+}
+
+impl<Vertex> Default for BreadthFirstSearchState<Vertex> {
+    fn default() -> Self {
+        Self {
+            queue: Default::default(),
+            explored: Default::default(),
+            neighbors: Default::default(),
+        }
+    }
+}
+
+/// An implementation of https://en.wikipedia.org/wiki/Breadth-first_search
+pub trait BreadthFirstSearch: Sized {
+    type Vertex: Clone + Eq + Hash;
+
+    fn start(&self) -> &Self::Vertex;
+    fn is_end(&self, vertex: &Self::Vertex) -> bool;
+    fn path_to(&self, vertex: &Self::Vertex) -> Vec<Self::Vertex>;
+    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>);
+    fn update_parent(&mut self, from: &Self::Vertex, to: &Self::Vertex);
+    fn reset(&mut self);
+
+    fn run_internal(
+        &mut self,
+        state: &mut BreadthFirstSearchState<Self::Vertex>,
+    ) -> Option<Vec<Self::Vertex>> {
+        self.reset();
+
+        state.clear();
+
+        let start: Self::Vertex = self.start().clone();
+        state.explored.insert(start.clone());
+        state.queue.push_back(start);
+
+        while let Some(current) = state.queue.pop_front() {
+            if self.is_end(&current) {
+                return Some(self.path_to(&current));
+            }
+
+            self.neighbors(&current, &mut state.neighbors);
+
+            for neighbor in state.neighbors.drain(..) {
+                if state.explored.insert(neighbor.clone()) {
+                    self.update_parent(&current, &neighbor);
+                    state.queue.push_back(neighbor);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn run(&mut self) -> Option<Vec<Self::Vertex>> {
+        self.run_internal(&mut BreadthFirstSearchState::default())
+    }
+}
 
 pub struct OpenSetElement<V: Clone + PartialEq, C: Clone + Ord>(pub V, pub C);
 
@@ -180,45 +318,19 @@ pub trait AStar: Sized {
     }
 }
 
-/// An implementation of https://en.wikipedia.org/wiki/Breadth-first_search
-pub trait BreadthFirstSearch: Sized {
-    type Vertex: Clone + Debug + Eq + Hash;
+pub struct KahnState<V> {
+    pub list: Vec<V>,
+    set: VecDeque<V>,
+    neighbors: Vec<V>,
+}
 
-    fn start(&self) -> &Self::Vertex;
-    fn is_end(&self, vertex: &Self::Vertex) -> bool;
-    fn path_to(&self, vertex: &Self::Vertex) -> Vec<Self::Vertex>;
-    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>);
-    fn update_parent(&mut self, from: &Self::Vertex, to: &Self::Vertex);
-    fn reset(&mut self);
-
-    fn run(&mut self) -> Option<Vec<Self::Vertex>> {
-        self.reset();
-
-        let mut queue: VecDeque<Self::Vertex> = VecDeque::new();
-        let mut explored: HashSet<Self::Vertex> = HashSet::new();
-
-        let start: Self::Vertex = self.start().clone();
-        explored.insert(start.clone());
-        queue.push_back(start);
-
-        let mut neighbors: Vec<Self::Vertex> = Vec::new();
-
-        while let Some(current) = queue.pop_front() {
-            if self.is_end(&current) {
-                return Some(self.path_to(&current));
-            }
-
-            self.neighbors(&current, &mut neighbors);
-
-            for neighbor in neighbors.drain(..) {
-                if explored.insert(neighbor.clone()) {
-                    self.update_parent(&current, &neighbor);
-                    queue.push_back(neighbor);
-                }
-            }
+impl<V> Default for KahnState<V> {
+    fn default() -> Self {
+        Self {
+            list: Default::default(),
+            set: Default::default(),
+            neighbors: Default::default(),
         }
-
-        None
     }
 }
 
@@ -236,40 +348,42 @@ pub trait Kahn {
     fn reset(&mut self);
     fn order_set(&self, set: &mut VecDeque<Self::Vertex>);
 
-    fn run(&mut self) -> Option<Vec<Self::Vertex>> {
-        let mut list: Vec<Self::Vertex> = Vec::new();
-        let mut set: VecDeque<Self::Vertex> = VecDeque::new();
-        let mut neighbors: Vec<Self::Vertex> = Vec::new();
+    fn run_internal(&mut self, state: &mut KahnState<Self::Vertex>) -> bool {
+        state.list.clear();
+        state.set.clear();
+        state.neighbors.clear();
 
         self.reset();
-        self.populate_initial_set(&mut set);
+        self.populate_initial_set(&mut state.set);
 
-        while let Some(vertex) = set.pop_front() {
-            list.push(vertex.clone());
-            neighbors.clear();
-            self.out_neighbors(&vertex, &mut neighbors);
+        while let Some(vertex) = state.set.pop_front() {
+            state.list.push(vertex.clone());
+            state.neighbors.clear();
+            self.out_neighbors(&vertex, &mut state.neighbors);
 
             let mut pushed_into_set: bool = false;
 
-            for neighbor in neighbors.drain(..) {
+            for neighbor in state.neighbors.drain(..) {
                 self.remove_edge(&vertex, &neighbor);
 
                 if !self.has_in_neighbors(&neighbor) {
-                    set.push_back(neighbor);
+                    state.set.push_back(neighbor);
                     pushed_into_set = true;
                 }
             }
 
             if pushed_into_set {
-                self.order_set(&mut set);
+                self.order_set(&mut state.set);
             }
         }
 
-        if self.any_edges_exist() {
-            None
-        } else {
-            Some(list)
-        }
+        !self.any_edges_exist()
+    }
+
+    fn run(&mut self) -> Option<Vec<Self::Vertex>> {
+        let mut state: KahnState<Self::Vertex> = KahnState::default();
+
+        self.run_internal(&mut state).then_some(state.list)
     }
 }
 

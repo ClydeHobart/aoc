@@ -488,7 +488,7 @@ impl Solution {
 impl Parse for Solution {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
         map_opt(Grid2D::parse, |mut grid| {
-            (grid.dimensions().cmple(SmallPos::MAX_DIMENSIONS).all()
+            (SmallPos::are_dimensions_valid(grid.dimensions())
                 && grid
                     .iter_filtered_positions(|cell: &Cell| {
                         cell.is_direction() || *cell == Cell::BestSittingSpot

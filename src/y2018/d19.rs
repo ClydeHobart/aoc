@@ -1,14 +1,14 @@
 use {
-    crate::*,
-    nom::{
-        bytes::complete::tag,
-        character::complete::line_ending,
-        combinator::{map, map_res, opt},
-        error::Error,
-        multi::many0,
-        sequence::{preceded, terminated, tuple},
-        Err, IResult,
+    crate::{
+        y2018::d16::{Instruction, RegisterRaw, Registers as D16Registers},
+        *,
     },
+    nom::{
+        bytes::complete::tag, character::complete::line_ending, combinator::map, error::Error,
+        multi::separated_list0, sequence::tuple, Err, IResult,
+    },
+    num::{NumCast, One},
+    y2018::d16::OpCode,
 };
 
 /* --- Day 19: Go With The Flow ---
@@ -55,24 +55,226 @@ In detail, when running this program, the following events occur:
     The instruction pointer is 4, so the instruction setr 1 0 0 is run. This is like an absolute jump: it copies the value contained in register 1, 5, into register 0, which causes it to end up in the instruction pointer. The instruction pointer is then incremented, leaving it at 6.
     The instruction pointer is 6, so the instruction seti 9 0 5 stores 9 into register 5. The instruction pointer is incremented, causing it to point outside the program, and so the program ends.
 
-What value is left in register 0 when the background process halts? */
+What value is left in register 0 when the background process halts?
+
+--- Part Two ---
+
+A new background process immediately spins up in its place. It appears identical, but on closer inspection, you notice that this time, register 0 started with the value 1.
+
+What value is left in register 0 when this new background process halts? */
+
+const REGISTERS_LEN: usize = 6_usize;
+
+type Registers = D16Registers<REGISTERS_LEN>;
+
+struct Constants {
+    instruction_20_g_eq_g_mul_b: RegisterRaw,
+    instruction_21_h_eq_h_add_b: RegisterRaw,
+    instruction_23_h_eq_h_add_b: RegisterRaw,
+    instruction_31_h_eq_h_mul_b: RegisterRaw,
+}
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct Solution;
+pub struct Solution {
+    instruction_pointer: RegisterRaw,
+    instructions: Vec<Instruction>,
+}
+
+impl Solution {
+    const Q1_REGISTER_0: RegisterRaw = 0 as RegisterRaw;
+    const Q2_REGISTER_0: RegisterRaw = 1 as RegisterRaw;
+
+    fn try_instruction_pointer_register_index(&self) -> Option<usize> {
+        Registers::try_register_index(self.instruction_pointer).ok()
+    }
+
+    fn try_get_instruction<'i>(&'i self, registers: &Registers) -> Option<&'i Instruction> {
+        self.try_instruction_pointer_register_index()
+            .and_then(|register_index| registers.0.get(register_index))
+            .and_then(|&instruction_index| <usize as NumCast>::from(instruction_index))
+            .and_then(|instruction_index| self.instructions.get(instruction_index))
+    }
+
+    fn try_execute_instruction(
+        &self,
+        instruction: &Instruction,
+        registers: &mut Registers,
+    ) -> Option<()> {
+        instruction
+            .try_execute(registers)
+            .ok()
+            .map(|next_registers| {
+                *registers = next_registers;
+
+                registers.0[self.try_instruction_pointer_register_index().unwrap()] +=
+                    RegisterRaw::one();
+            })
+    }
+
+    fn try_run(&self, register_0: RegisterRaw) -> Option<Registers> {
+        let mut registers: Registers = Registers::default();
+
+        registers.0[0_usize] = register_0;
+
+        while let Some(instruction) = self.try_get_instruction(&registers) {
+            self.try_execute_instruction(instruction, &mut registers)?;
+        }
+
+        Some(registers)
+    }
+
+    fn try_register_0_after_run(&self, register_0: RegisterRaw) -> Option<RegisterRaw> {
+        self.try_run(register_0)
+            .map(|registers| registers.0[0_usize])
+    }
+
+    fn try_get_constant(
+        &self,
+        instruction_index: usize,
+        op_code: OpCode,
+        a: RegisterRaw,
+        c: RegisterRaw,
+    ) -> Option<RegisterRaw> {
+        self.instructions
+            .get(instruction_index)
+            .and_then(|instruction| {
+                (instruction.op_code == op_code && instruction.a == a && instruction.c == c)
+                    .then_some(instruction.b)
+            })
+    }
+
+    fn try_get_constants(&self) -> Option<Constants> {
+        const G: RegisterRaw = 3 as RegisterRaw;
+        const H: RegisterRaw = 4 as RegisterRaw;
+        const I: RegisterRaw = 5 as RegisterRaw;
+
+        // This function could be more rigorous, but doing so would expose more details about the
+        // user-specific input than I'm comfortable sharing.
+        (self.instructions.len() == 36_usize && self.instruction_pointer == I)
+            .then_some(())
+            .and_then(|_| {
+                self.try_get_constant(20_usize, OpCode::MulI, G, G)
+                    .zip(self.try_get_constant(21_usize, OpCode::AddI, H, H))
+                    .zip(
+                        self.try_get_constant(23_usize, OpCode::AddI, H, H)
+                            .zip(self.try_get_constant(31_usize, OpCode::MulI, H, H)),
+                    )
+                    .map(
+                        |(
+                            (instruction_20_g_eq_g_mul_b, instruction_21_h_eq_h_add_b),
+                            (instruction_23_h_eq_h_add_b, instruction_31_h_eq_h_mul_b),
+                        )| Constants {
+                            instruction_20_g_eq_g_mul_b,
+                            instruction_21_h_eq_h_add_b,
+                            instruction_23_h_eq_h_add_b,
+                            instruction_31_h_eq_h_mul_b,
+                        },
+                    )
+            })
+    }
+
+    fn try_run_simplified(&self, register_0: RegisterRaw) -> Option<Registers> {
+        matches!(register_0, 0 | 1)
+            .then(|| self.try_get_constants())
+            .flatten()
+            .map(|constants| {
+                const INSTRUCTION_16_I_EQ_I_MUL_I: RegisterRaw = 16 as RegisterRaw;
+                const INSTRUCTION_17_G_EQ_G_ADD_B: RegisterRaw = 2 as RegisterRaw;
+                const INSTRUCTION_19_G_EQ_I_MUL_G: RegisterRaw = 19 as RegisterRaw;
+                const INSTRUCTION_22_H_EQ_H_MUL_I: RegisterRaw = 22 as RegisterRaw;
+                const INSTRUCTION_27_H_EQ_I: RegisterRaw = 27 as RegisterRaw;
+                const INSTRUCTION_28_H_EQ_H_MUL_I: RegisterRaw = 28 as RegisterRaw;
+                const INSTRUCTION_29_H_EQ_I_ADD_H: RegisterRaw = 29 as RegisterRaw;
+                const INSTRUCTION_30_H_EQ_I_MUL_H: RegisterRaw = 30 as RegisterRaw;
+                const INSTRUCTION_32_H_EQ_H_MUL_I: RegisterRaw = 32 as RegisterRaw;
+                let g = INSTRUCTION_17_G_EQ_G_ADD_B
+                    * INSTRUCTION_17_G_EQ_G_ADD_B
+                    * INSTRUCTION_19_G_EQ_I_MUL_G
+                    * constants.instruction_20_g_eq_g_mul_b
+                    + (constants.instruction_21_h_eq_h_add_b * INSTRUCTION_22_H_EQ_H_MUL_I
+                        + constants.instruction_23_h_eq_h_add_b)
+                    + register_0
+                        * (INSTRUCTION_27_H_EQ_I * INSTRUCTION_28_H_EQ_H_MUL_I
+                            + INSTRUCTION_29_H_EQ_I_ADD_H)
+                        * INSTRUCTION_30_H_EQ_I_MUL_H
+                        * constants.instruction_31_h_eq_h_mul_b
+                        * INSTRUCTION_32_H_EQ_H_MUL_I;
+
+                // The instructions perform this computation:
+
+                // f = 1 as RegisterRaw;
+                // while {
+                //     e = 1 as RegisterRaw;
+                //     while {
+                //         if f * e == g as RegisterRaw {
+                //             d += f;
+                //         }
+                //         e += 1 as RegisterRaw;
+                //         e <= g
+                //     } {}
+                //     f += 1 as RegisterRaw;
+                //     f <= g
+                // } {}
+
+                // This is an algorithm for summing the factors of a number. Unfortunately, running
+                // this code as is is wildly inefficient for `g` when `initial_d` is true. Instead,
+                // let's compute that number a different way.
+                let d = iter_factors(g as usize)
+                    .map(|factor| factor as RegisterRaw)
+                    .sum();
+
+                D16Registers([
+                    d,
+                    g + 1 as RegisterRaw,
+                    g + 1 as RegisterRaw,
+                    g,
+                    1 as RegisterRaw,
+                    INSTRUCTION_16_I_EQ_I_MUL_I * INSTRUCTION_16_I_EQ_I_MUL_I + 1 as RegisterRaw,
+                ])
+            })
+    }
+
+    fn try_register_0_after_run_simplified(&self, register_0: RegisterRaw) -> Option<RegisterRaw> {
+        self.try_run_simplified(register_0)
+            .map(|registers| registers.0[0_usize])
+    }
+}
 
 impl Parse for Solution {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
-        todo!()
+        map(
+            tuple((
+                tag("#ip "),
+                parse_integer,
+                line_ending,
+                separated_list0(line_ending, Instruction::parse),
+            )),
+            |(_, instruction_pointer, _, instructions)| Self {
+                instruction_pointer,
+                instructions,
+            },
+        )(input)
     }
 }
 
 impl RunQuestions for Solution {
+    /// Please don't make me reverse engineer this program.
     fn q1_internal(&mut self, args: &QuestionArgs) {
-        todo!();
+        if args.verbose {
+            dbg!(self.try_run(Self::Q1_REGISTER_0));
+            dbg!(self.try_run_simplified(Self::Q1_REGISTER_0));
+        } else {
+            dbg!(self.try_register_0_after_run(Self::Q1_REGISTER_0));
+        }
     }
 
+    /// You did it anyway.
     fn q2_internal(&mut self, args: &QuestionArgs) {
-        todo!();
+        if args.verbose {
+            dbg!(self.try_run_simplified(Self::Q2_REGISTER_0));
+        } else {
+            dbg!(self.try_register_0_after_run_simplified(Self::Q2_REGISTER_0));
+        }
     }
 }
 
@@ -86,14 +288,70 @@ impl<'i> TryFrom<&'i str> for Solution {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, std::sync::OnceLock};
+    use {super::*, crate::y2018::d16::OpCode, std::sync::OnceLock};
 
-    const SOLUTION_STRS: &'static [&'static str] = &[""];
+    const SOLUTION_STRS: &'static [&'static str] = &["\
+        #ip 0\n\
+        seti 5 0 1\n\
+        seti 6 0 2\n\
+        addi 0 1 0\n\
+        addr 1 2 3\n\
+        setr 1 0 0\n\
+        seti 8 0 4\n\
+        seti 9 0 5\n"];
 
     fn solution(index: usize) -> &'static Solution {
         static ONCE_LOCK: OnceLock<Vec<Solution>> = OnceLock::new();
 
-        &ONCE_LOCK.get_or_init(|| vec![])[index]
+        &ONCE_LOCK.get_or_init(|| {
+            vec![Solution {
+                instruction_pointer: 0 as RegisterRaw,
+                instructions: vec![
+                    Instruction {
+                        op_code: OpCode::SetI,
+                        a: 5 as RegisterRaw,
+                        b: 0 as RegisterRaw,
+                        c: 1 as RegisterRaw,
+                    },
+                    Instruction {
+                        op_code: OpCode::SetI,
+                        a: 6 as RegisterRaw,
+                        b: 0 as RegisterRaw,
+                        c: 2 as RegisterRaw,
+                    },
+                    Instruction {
+                        op_code: OpCode::AddI,
+                        a: 0 as RegisterRaw,
+                        b: 1 as RegisterRaw,
+                        c: 0 as RegisterRaw,
+                    },
+                    Instruction {
+                        op_code: OpCode::AddR,
+                        a: 1 as RegisterRaw,
+                        b: 2 as RegisterRaw,
+                        c: 3 as RegisterRaw,
+                    },
+                    Instruction {
+                        op_code: OpCode::SetR,
+                        a: 1 as RegisterRaw,
+                        b: 0 as RegisterRaw,
+                        c: 0 as RegisterRaw,
+                    },
+                    Instruction {
+                        op_code: OpCode::SetI,
+                        a: 8 as RegisterRaw,
+                        b: 0 as RegisterRaw,
+                        c: 4 as RegisterRaw,
+                    },
+                    Instruction {
+                        op_code: OpCode::SetI,
+                        a: 9 as RegisterRaw,
+                        b: 0 as RegisterRaw,
+                        c: 5 as RegisterRaw,
+                    },
+                ],
+            }]
+        })[index]
     }
 
     #[test]
@@ -107,9 +365,78 @@ mod tests {
     }
 
     #[test]
+    fn test_try_execute_instruction() {
+        for (index, registers_list) in [vec![
+            D16Registers([
+                1 as RegisterRaw,
+                5 as RegisterRaw,
+                0 as RegisterRaw,
+                0 as RegisterRaw,
+                0 as RegisterRaw,
+                0 as RegisterRaw,
+            ]),
+            D16Registers([
+                2 as RegisterRaw,
+                5 as RegisterRaw,
+                6 as RegisterRaw,
+                0 as RegisterRaw,
+                0 as RegisterRaw,
+                0 as RegisterRaw,
+            ]),
+            D16Registers([
+                4 as RegisterRaw,
+                5 as RegisterRaw,
+                6 as RegisterRaw,
+                0 as RegisterRaw,
+                0 as RegisterRaw,
+                0 as RegisterRaw,
+            ]),
+            D16Registers([
+                6 as RegisterRaw,
+                5 as RegisterRaw,
+                6 as RegisterRaw,
+                0 as RegisterRaw,
+                0 as RegisterRaw,
+                0 as RegisterRaw,
+            ]),
+        ]]
+        .into_iter()
+        .enumerate()
+        {
+            let solution: &Solution = solution(index);
+
+            let mut curr_registers: Registers = Registers::default();
+
+            for registers in registers_list {
+                solution
+                    .try_execute_instruction(
+                        solution.try_get_instruction(&curr_registers).unwrap(),
+                        &mut curr_registers,
+                    )
+                    .unwrap();
+
+                assert_eq!(curr_registers, registers);
+            }
+        }
+    }
+
+    #[test]
+    fn test_try_register_0_after_run() {
+        for (index, register_0_after_run) in [Some(7 as RegisterRaw)].into_iter().enumerate() {
+            assert_eq!(
+                solution(index).try_register_0_after_run(Solution::Q1_REGISTER_0),
+                register_0_after_run
+            );
+        }
+    }
+
+    #[test]
     fn test_input() {
         // let args: Args = Args::parse(module_path!()).unwrap().1;
+        let mut args: Args = Args::parse(module_path!()).unwrap().1;
 
-        // Solution::both(&args);
+        args.question_args.verbose = true;
+
+        Solution::both(&args);
     }
 }

@@ -132,7 +132,7 @@ impl<'c> CorruptedLocationPathFinder<'c> {
         start: IVec2,
         end: IVec2,
     ) -> Option<Self> {
-        (dimensions.cmple(SmallPos::MAX_DIMENSIONS).all()
+        (SmallPos::are_dimensions_valid(dimensions)
             && grid_2d_contains(start, dimensions)
             && grid_2d_contains(end, dimensions))
         .then(|| Self {

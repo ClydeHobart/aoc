@@ -1,6 +1,6 @@
 use {
     crate::*,
-    std::mem::transmute,
+    std::mem::{swap, transmute},
     std::{
         fmt::{Debug, Formatter, Result as FmtResult},
         marker::PhantomData,
@@ -11,10 +11,16 @@ define_super_trait! {
     pub trait TableIdTrait where Self: Clone + Eq + Ord + PartialEq + PartialOrd {}
 }
 
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, PartialEq)]
 pub struct TableElement<Id, Data> {
     pub id: Id,
     pub data: Data,
+}
+
+impl<Id: TableIdTrait, Data> TableElement<Id, Data> {
+    fn id_for_sort_key(&self) -> Id {
+        self.id.clone()
+    }
 }
 
 impl<Id: Debug, Data: Debug> Debug for TableElement<Id, Data> {
@@ -24,7 +30,7 @@ impl<Id: Debug, Data: Debug> Debug for TableElement<Id, Data> {
 }
 
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Table<Id: TableIdTrait, Data, IndexRaw: IndexRawTrait = usize> {
     table: Vec<TableElement<Id, Data>>,
     _index: PhantomData<IndexRaw>,
@@ -42,10 +48,66 @@ impl<Id: TableIdTrait, Data, IndexRaw: IndexRawTrait> Table<Id, Data, IndexRaw> 
         &self.table
     }
 
+    pub fn find_index(&self, id: &Id) -> Index<IndexRaw> {
+        self.table
+            .iter()
+            .position(|table_element| table_element.id == *id)
+            .map_or_else(Index::default, Index::new)
+    }
+
+    pub fn find_index_binary_search(&self, id: &Id) -> Index<IndexRaw> {
+        self.table
+            .binary_search_by_key(id, TableElement::id_for_sort_key)
+            .ok()
+            .map_or_else(Index::default, Index::new)
+    }
+
+    pub fn clear(&mut self) {
+        self.table.clear();
+    }
+
     /// It is the user's responsibility to ensure either the IDs aren't modified, or that other
     /// consumers don't care about the IDs being modified.
     pub fn as_slice_mut(&mut self) -> &mut [TableElement<Id, Data>] {
         &mut self.table
+    }
+
+    pub fn sort_by_id(&mut self) {
+        self.table.sort_by_key(TableElement::id_for_sort_key)
+    }
+
+    pub fn insert(&mut self, id: Id, data: Data) -> Option<Data> {
+        if let Some(index) = self.find_index(&id).opt() {
+            let mut data: Data = data;
+
+            swap(&mut data, &mut self.table[index.get()].data);
+
+            Some(data)
+        } else {
+            self.table.push(TableElement { id, data });
+
+            None
+        }
+    }
+
+    pub fn insert_binary_search(&mut self, id: Id, data: Data) -> Option<Data> {
+        match self
+            .table
+            .binary_search_by_key(&id, TableElement::id_for_sort_key)
+        {
+            Ok(index) => {
+                let mut data: Data = data;
+
+                swap(&mut data, &mut self.table[index].data);
+
+                Some(data)
+            }
+            Err(index) => {
+                self.table.insert(index, TableElement { id, data });
+
+                None
+            }
+        }
     }
 
     pub fn find_or_add_index(&mut self, id: &Id) -> Index<IndexRaw>
@@ -65,11 +127,43 @@ impl<Id: TableIdTrait, Data, IndexRaw: IndexRawTrait> Table<Id, Data, IndexRaw> 
         index
     }
 
-    pub fn find_index(&self, id: &Id) -> Index<IndexRaw> {
-        self.table
-            .iter()
-            .position(|table_element| table_element.id == *id)
-            .map_or_else(Index::default, Index::new)
+    pub fn find_or_add_index_binary_search(&mut self, id: &Id) -> Index<IndexRaw>
+    where
+        Data: Default,
+    {
+        match self
+            .table
+            .binary_search_by_key(id, TableElement::id_for_sort_key)
+        {
+            Ok(index) => index.into(),
+            Err(index) => {
+                self.table.insert(
+                    index,
+                    TableElement {
+                        id: id.clone(),
+                        data: Data::default(),
+                    },
+                );
+
+                index.into()
+            }
+        }
+    }
+
+    pub fn remove_by_index(&mut self, index: Index<IndexRaw>) -> TableElement<Id, Data> {
+        self.table.remove(index.get())
+    }
+
+    pub fn remove_by_id(&mut self, id: &Id) -> Option<Data> {
+        self.find_index(id)
+            .opt()
+            .map(|index| self.remove_by_index(index).data)
+    }
+
+    pub fn remove_by_id_binary_search(&mut self, id: &Id) -> Option<Data> {
+        self.find_index_binary_search(id)
+            .opt()
+            .map(|index| self.remove_by_index(index).data)
     }
 }
 

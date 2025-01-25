@@ -626,13 +626,16 @@ impl ModuleConfiguration {
                         *should_watch = false;
                         state_indices_to_watch_count -= 1_usize;
 
-                        for prime_factor in iter_prime_factors(button_presses as u32) {
-                            if let Some(exponent) = prime_factorization.get_mut(&prime_factor.prime)
+                        for prime_factor in iter_prime_factors(button_presses) {
+                            if let Some(exponent) =
+                                prime_factorization.get_mut(&(prime_factor.prime as u32))
                             {
-                                *exponent = (*exponent).max(prime_factor.exponent);
+                                *exponent = (*exponent).max(prime_factor.exponent as u32);
                             } else {
-                                prime_factorization
-                                    .insert(prime_factor.prime, prime_factor.exponent);
+                                prime_factorization.insert(
+                                    prime_factor.prime as u32,
+                                    prime_factor.exponent as u32,
+                                );
                             }
                         }
                     }

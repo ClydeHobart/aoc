@@ -5,9 +5,11 @@ pub use {
     index::*,
     letter_counts::*,
     linked_list::*,
+    no_drop_vec::*,
     nom::{error::Error as NomError, Err as NomErr},
     pixel::Pixel,
     region_tree::*,
+    set_and_vec::*,
     static_string::*,
     table::*,
 };
@@ -20,20 +22,23 @@ use {
         branch::alt,
         bytes::complete::{tag, take},
         character::complete::digit1,
-        combinator::{all_consuming, map, map_res, opt, rest},
+        combinator::{all_consuming, map, map_res, opt, rest, success},
+        multi::many_m_n,
         sequence::tuple,
-        IResult,
+        IResult, Parser as NomParser,
     },
     num::{Integer, NumCast, PrimInt, ToPrimitive},
     std::{
         alloc::{alloc, Layout},
         any::type_name,
         cmp::{max, min, Ordering},
-        fmt::Debug,
+        fmt::{Debug, Formatter, Result as FmtResult},
         fs::File,
         hash::{DefaultHasher, Hash, Hasher},
+        hint::black_box,
         io::{Error as IoError, ErrorKind, Result as IoResult},
-        mem::{transmute, ManuallyDrop, MaybeUninit},
+        iter::from_fn,
+        mem::{size_of, transmute, ManuallyDrop, MaybeUninit},
         ops::{Deref, DerefMut, Range, RangeInclusive},
         str::{from_utf8, FromStr, Utf8Error},
         task::Poll,
@@ -50,8 +55,10 @@ mod index;
 mod letter_counts;
 mod linked_list;
 pub mod minimal_value_with_all_digit_pairs;
+mod no_drop_vec;
 pub mod pixel;
 mod region_tree;
+mod set_and_vec;
 mod static_string;
 mod table;
 
@@ -577,6 +584,80 @@ pub fn parse_integer_n_bytes<'i, I: FromStr + Integer>(
     })
 }
 
+fn parse_array_internal<
+    'i,
+    const LEN: usize,
+    O: Default,
+    O2,
+    F: NomParser<&'i str, O, NomError<&'i str>>,
+    G: NomParser<&'i str, O2, NomError<&'i str>>,
+>(
+    mut f: F,
+    mut g: G,
+    is_terminated: bool,
+) -> impl FnMut(&'i str) -> IResult<&'i str, [O; LEN]> {
+    move |input: &'i str| {
+        let mut array: [O; LEN] = LargeArrayDefault::large_array_default();
+        let mut index: usize = 0_usize;
+
+        let input: &str = many_m_n(LEN, LEN, |input: &'i str| {
+            let (mut input, value): (&str, O) = f.parse(input)?;
+            let next_index: usize = index + 1_usize;
+
+            if next_index != LEN || is_terminated {
+                input = g.parse(input)?.0;
+            }
+
+            array[index] = value;
+            index = next_index;
+
+            Ok((input, ()))
+        })(input)?
+        .0;
+
+        Ok((input, array))
+    }
+}
+
+pub fn parse_array<
+    'i,
+    const LEN: usize,
+    O: Default,
+    F: NomParser<&'i str, O, NomError<&'i str>>,
+>(
+    f: F,
+) -> impl FnMut(&'i str) -> IResult<&'i str, [O; LEN]> {
+    parse_array_internal(f, success(()), false)
+}
+
+pub fn parse_separated_array<
+    'i,
+    const LEN: usize,
+    O: Default,
+    O2,
+    F: NomParser<&'i str, O, NomError<&'i str>>,
+    G: NomParser<&'i str, O2, NomError<&'i str>>,
+>(
+    f: F,
+    g: G,
+) -> impl FnMut(&'i str) -> IResult<&'i str, [O; LEN]> {
+    parse_array_internal(f, g, false)
+}
+
+pub fn parse_terminated_array<
+    'i,
+    const LEN: usize,
+    O: Default,
+    O2,
+    F: NomParser<&'i str, O, NomError<&'i str>>,
+    G: NomParser<&'i str, O2, NomError<&'i str>>,
+>(
+    f: F,
+    g: G,
+) -> impl FnMut(&'i str) -> IResult<&'i str, [O; LEN]> {
+    parse_array_internal(f, g, true)
+}
+
 pub trait Parse: Sized {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self>;
 }
@@ -761,56 +842,259 @@ pub const U32_DIGITS: usize = digits(u32::MAX);
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct PrimeFactor {
-    pub prime: u32,
-    pub exponent: u32,
+    pub prime: usize,
+    pub exponent: u8,
 }
 
-fn try_get_prime_factor(value: &mut u32, divisor: u32) -> Option<PrimeFactor> {
-    let mut local_value: u32 = *value;
+struct ConstTryGetPrimeFactorResult {
+    remaining: usize,
+    prime_factor: PrimeFactor,
+}
 
-    if local_value == 0_u32 {
+const fn const_try_get_prime_factor(
+    remaining: usize,
+    divisor: usize,
+) -> Option<ConstTryGetPrimeFactorResult> {
+    if remaining <= 1_usize {
         None
     } else {
-        let mut exponent: u32 = 0_u32;
+        let mut exponent: u8 = 0_u8;
+        let mut remaining: usize = remaining;
 
-        if local_value != 1_u32 {
-            while local_value % divisor == 0_u32 {
-                local_value /= divisor;
-                exponent += 1_u32;
-            }
-
-            *value = local_value;
+        while remaining % divisor == 0_usize {
+            remaining /= divisor;
+            exponent += 1_u8;
         }
 
-        if exponent != 0_u32 {
-            Some(PrimeFactor {
-                prime: divisor,
-                exponent,
-            })
-        } else {
+        if exponent == 0_u8 {
             None
+        } else {
+            Some(ConstTryGetPrimeFactorResult {
+                remaining,
+                prime_factor: PrimeFactor {
+                    prime: divisor,
+                    exponent,
+                },
+            })
         }
     }
+}
+
+struct ConstTryGetNextPrimeFactorResult {
+    remaining: usize,
+    divisor: usize,
+    prime_factor: PrimeFactor,
+}
+
+const fn const_try_get_next_prime_factor(
+    value: usize,
+    remaining: usize,
+    divisor: usize,
+) -> Option<ConstTryGetNextPrimeFactorResult> {
+    let mut result: Option<ConstTryGetNextPrimeFactorResult> = None;
+    let mut divisor: usize = divisor;
+
+    if divisor == 2_usize {
+        let next_divisor: usize = 3_usize;
+
+        if let Some(const_try_get_prime_factor_result) =
+            const_try_get_prime_factor(remaining, divisor)
+        {
+            result = Some(ConstTryGetNextPrimeFactorResult {
+                remaining: const_try_get_prime_factor_result.remaining,
+                divisor: next_divisor,
+                prime_factor: const_try_get_prime_factor_result.prime_factor,
+            });
+        } else {
+            divisor = next_divisor;
+        }
+    }
+
+    // Could actually be even
+    let max_odd: usize = value / 2_usize;
+
+    while result.is_none() && divisor <= max_odd {
+        let mut next_divisor: usize = divisor + 2_usize;
+
+        if next_divisor > max_odd {
+            next_divisor = value;
+        }
+
+        if let Some(const_try_get_prime_factor_result) =
+            const_try_get_prime_factor(remaining, divisor)
+        {
+            result = Some(ConstTryGetNextPrimeFactorResult {
+                remaining: const_try_get_prime_factor_result.remaining,
+                divisor: next_divisor,
+                prime_factor: const_try_get_prime_factor_result.prime_factor,
+            });
+        } else {
+            divisor = next_divisor;
+        }
+    }
+
+    if result.is_none() && divisor == value {
+        if let Some(const_try_get_prime_factor_result) =
+            const_try_get_prime_factor(remaining, divisor)
+        {
+            result = Some(ConstTryGetNextPrimeFactorResult {
+                remaining: const_try_get_prime_factor_result.remaining,
+                divisor: usize::MAX,
+                prime_factor: const_try_get_prime_factor_result.prime_factor,
+            });
+        }
+    }
+
+    result
+}
+
+pub const fn const_is_prime(value: usize) -> bool {
+    let remaining: usize = value;
+    let divisor: usize = 2_usize;
+
+    if let Some(result) = const_try_get_next_prime_factor(value, remaining, divisor) {
+        const_try_get_next_prime_factor(value, result.remaining, result.divisor).is_none()
+    } else {
+        false
+    }
+}
+
+pub const fn const_is_composite(value: usize) -> bool {
+    let remaining: usize = value;
+    let divisor: usize = 2_usize;
+
+    if let Some(result) = const_try_get_next_prime_factor(value, remaining, divisor) {
+        const_try_get_next_prime_factor(value, result.remaining, result.divisor).is_some()
+    } else {
+        false
+    }
+}
+
+pub const fn max_distinct_primes<I: PrimInt>() -> usize {
+    let max: usize = usize::MAX >> ((size_of::<usize>() - size_of::<I>()) * u8::BITS as usize);
+    let mut product: usize = 2_usize;
+    let mut distinct_primes: usize = 1_usize;
+    let mut candidate: usize = 3_usize;
+
+    while product < max {
+        if const_is_prime(candidate) {
+            product = match product.checked_mul(candidate) {
+                Some(product) => product,
+                None => max,
+            };
+
+            // This will add one more than needed, but it's better to save the branching here and
+            // just subtract one off at the end.
+            distinct_primes += 1_usize;
+        }
+
+        candidate += 2_usize;
+    }
+
+    distinct_primes - 1_usize
+}
+
+pub trait MaxDistinctPrimes {
+    const MAX_DISTINCT_PRIMES: usize;
+}
+
+impl<I: PrimInt> MaxDistinctPrimes for I {
+    const MAX_DISTINCT_PRIMES: usize = max_distinct_primes::<I>();
+}
+
+pub struct PrimeFactors {
+    primes: [usize; usize::MAX_DISTINCT_PRIMES],
+    exponents: [u8; usize::MAX_DISTINCT_PRIMES],
+    len: u8,
+}
+
+impl PrimeFactors {
+    pub const fn new() -> Self {
+        PrimeFactors {
+            primes: [0_usize; usize::MAX_DISTINCT_PRIMES],
+            exponents: [0_u8; usize::MAX_DISTINCT_PRIMES],
+            len: 0_u8,
+        }
+    }
+
+    pub fn iter_prime_factors(&self) -> impl Iterator<Item = PrimeFactor> + '_ {
+        self.primes[..self.len as usize]
+            .iter()
+            .zip(self.exponents[..self.len as usize].iter())
+            .map(|(&prime, &exponent)| PrimeFactor { prime, exponent })
+    }
+
+    pub fn push(&mut self, prime_factor: PrimeFactor) {
+        let index: usize = self.len as usize;
+
+        self.primes[index] = prime_factor.prime;
+        self.exponents[index] = prime_factor.exponent;
+        self.len += 1_u8;
+    }
+
+    pub fn get_prime_factor(&self, index: usize) -> PrimeFactor {
+        assert!(index < self.len as usize);
+
+        PrimeFactor {
+            prime: self.primes[index],
+            exponent: self.exponents[index],
+        }
+    }
+}
+
+pub const fn compute_prime_factors(value: usize) -> PrimeFactors {
+    let mut prime_factors: PrimeFactors = PrimeFactors::new();
+    let mut remaining: usize = value;
+    let mut divisor: usize = 2_usize;
+
+    while {
+        if let Some(result) = const_try_get_next_prime_factor(value, remaining, divisor) {
+            remaining = result.remaining;
+            divisor = result.divisor;
+
+            let index: usize = prime_factors.len as usize;
+
+            prime_factors.primes[index] = result.prime_factor.prime;
+            prime_factors.exponents[index] = result.prime_factor.exponent;
+            prime_factors.len += 1_u8;
+
+            true
+        } else {
+            false
+        }
+    } {}
+
+    prime_factors
+}
+
+fn try_get_prime_factor(remaining: &mut usize, divisor: usize) -> Option<PrimeFactor> {
+    const_try_get_prime_factor(*remaining, divisor).map(|result| {
+        *remaining = result.remaining;
+
+        result.prime_factor
+    })
 }
 
 /// Iterate over the prime factors of a given number.
 ///
 /// This is an implementation of https://www.geeksforgeeks.org/print-all-prime-factors-of-a-given-number/
-pub fn iter_prime_factors(mut value: u32) -> impl Iterator<Item = PrimeFactor> {
-    [2_u32]
+pub fn iter_prime_factors(value: usize) -> impl Iterator<Item = PrimeFactor> {
+    let mut remaining: usize = value;
+
+    [2_usize]
         .into_iter()
-        .chain((3_u32..=value / 2_u32).step_by(2_usize))
+        .chain((3_usize..=value / 2_usize).step_by(2_usize))
         .chain([value])
-        .filter_map(move |divisor| try_get_prime_factor(&mut value, divisor))
+        .filter_map(move |divisor| try_get_prime_factor(&mut remaining, divisor))
 }
 
-pub fn is_prime(value: u32) -> bool {
+pub fn is_prime(value: usize) -> bool {
     let mut prime_factor_iter = iter_prime_factors(value);
 
     prime_factor_iter.next().is_some() && prime_factor_iter.next().is_none()
 }
 
-pub fn is_composite(value: u32) -> bool {
+pub fn is_composite(value: usize) -> bool {
     let mut prime_factor_iter = iter_prime_factors(value);
 
     prime_factor_iter.next().is_some() && prime_factor_iter.next().is_some()
@@ -818,60 +1102,161 @@ pub fn is_composite(value: u32) -> bool {
 
 #[test]
 fn test_iter_prime_factors() {
-    assert_eq!(
-        iter_prime_factors(12_u32).collect::<Vec<PrimeFactor>>(),
-        vec![
-            PrimeFactor {
-                prime: 2_u32,
-                exponent: 2_u32
-            },
-            PrimeFactor {
-                prime: 3_u32,
-                exponent: 1_u32
-            },
-        ]
-    );
-    assert_eq!(
-        iter_prime_factors(315_u32).collect::<Vec<PrimeFactor>>(),
-        vec![
-            PrimeFactor {
-                prime: 3_u32,
-                exponent: 2_u32
-            },
-            PrimeFactor {
-                prime: 5_u32,
-                exponent: 1_u32
-            },
-            PrimeFactor {
-                prime: 7_u32,
-                exponent: 1_u32
-            },
-        ]
-    );
-    assert_eq!(
-        iter_prime_factors(41_u32).collect::<Vec<PrimeFactor>>(),
-        vec![PrimeFactor {
-            prime: 41_u32,
-            exponent: 1_u32
-        }]
-    );
-    assert_eq!(
-        iter_prime_factors(22411_u32).collect::<Vec<PrimeFactor>>(),
-        vec![
-            PrimeFactor {
-                prime: 73_u32,
-                exponent: 1_u32
-            },
-            PrimeFactor {
-                prime: 307_u32,
-                exponent: 1_u32
-            },
-        ]
-    );
-    assert_eq!(
-        iter_prime_factors(0_u32).collect::<Vec<PrimeFactor>>(),
-        vec![]
-    );
+    for (value, prime_factors) in [
+        (
+            12_usize,
+            vec![
+                PrimeFactor {
+                    prime: 2_usize,
+                    exponent: 2_u8,
+                },
+                PrimeFactor {
+                    prime: 3_usize,
+                    exponent: 1_u8,
+                },
+            ],
+        ),
+        (
+            120_usize,
+            vec![
+                PrimeFactor {
+                    prime: 2_usize,
+                    exponent: 3_u8,
+                },
+                PrimeFactor {
+                    prime: 3_usize,
+                    exponent: 1_u8,
+                },
+                PrimeFactor {
+                    prime: 5_usize,
+                    exponent: 1_u8,
+                },
+            ],
+        ),
+        (
+            315_usize,
+            vec![
+                PrimeFactor {
+                    prime: 3_usize,
+                    exponent: 2_u8,
+                },
+                PrimeFactor {
+                    prime: 5_usize,
+                    exponent: 1_u8,
+                },
+                PrimeFactor {
+                    prime: 7_usize,
+                    exponent: 1_u8,
+                },
+            ],
+        ),
+        (
+            41_usize,
+            vec![PrimeFactor {
+                prime: 41_usize,
+                exponent: 1_u8,
+            }],
+        ),
+        (
+            22411_usize,
+            vec![
+                PrimeFactor {
+                    prime: 73_usize,
+                    exponent: 1_u8,
+                },
+                PrimeFactor {
+                    prime: 307_usize,
+                    exponent: 1_u8,
+                },
+            ],
+        ),
+        (0_usize, Vec::new()),
+        (1_usize, Vec::new()),
+    ] {
+        assert_eq!(
+            iter_prime_factors(value).collect::<Vec<PrimeFactor>>(),
+            prime_factors
+        );
+        assert_eq!(
+            compute_prime_factors(value)
+                .iter_prime_factors()
+                .collect::<Vec<PrimeFactor>>(),
+            prime_factors
+        );
+    }
+}
+
+pub fn iter_factors(value: usize) -> impl Iterator<Item = usize> {
+    (value <= 1_usize).then_some(value).into_iter().chain({
+        (value > 1_usize)
+            .then(|| {
+                let mut prime_factors: PrimeFactors = PrimeFactors::new();
+
+                for prime_factor in iter_prime_factors(value) {
+                    prime_factors.push(prime_factor);
+                }
+
+                let mut exponents: [u8; usize::MAX_DISTINCT_PRIMES] =
+                    [0_u8; usize::MAX_DISTINCT_PRIMES];
+                let mut is_done: bool = false;
+
+                from_fn(move || {
+                    (!is_done).then(|| {
+                        let factor: usize = prime_factors
+                            .iter_prime_factors()
+                            .zip(exponents.iter().copied())
+                            .map(|(prime_factor, exponent)| prime_factor.prime.pow(exponent as u32))
+                            .product();
+
+                        is_done = prime_factors
+                            .iter_prime_factors()
+                            .zip(exponents[..prime_factors.len as usize].iter_mut())
+                            .try_for_each(|(prime_factor, exponent)| {
+                                *exponent += 1_u8;
+
+                                (*exponent > prime_factor.exponent).then(|| {
+                                    *exponent = 0_u8;
+                                })
+                            })
+                            .is_some();
+
+                        factor
+                    })
+                })
+            })
+            .into_iter()
+            .flatten()
+    })
+}
+
+#[test]
+fn test_iter_factors() {
+    for (value, factors) in [
+        (
+            12_usize,
+            vec![1_usize, 2_usize, 4_usize, 3_usize, 6_usize, 12_usize],
+        ),
+        (
+            120_usize,
+            vec![
+                1_usize, 2_usize, 4_usize, 8_usize, 3_usize, 6_usize, 12_usize, 24_usize, 5_usize,
+                10_usize, 20_usize, 40_usize, 15_usize, 30_usize, 60_usize, 120_usize,
+            ],
+        ),
+        (
+            315_usize,
+            vec![
+                1_usize, 3_usize, 9_usize, 5_usize, 15_usize, 45_usize, 7_usize, 21_usize,
+                63_usize, 35_usize, 105_usize, 315_usize,
+            ],
+        ),
+        (41_usize, vec![1_usize, 41_usize]),
+        (22411_usize, vec![1_usize, 73_usize, 307_usize, 22411_usize]),
+        (0_usize, vec![0_usize]),
+        (1_usize, vec![1_usize]),
+    ] {
+        assert_eq!(iter_factors(value).collect::<Vec<usize>>(), factors);
+    }
 }
 
 // This is an implementation of https://en.wikipedia.org/wiki/Greatest_common_divisor#Binary_GCD_algorithm
@@ -1112,6 +1497,27 @@ pub fn boxed_slice_from_array<T: Unpin, const N: usize>(array: [T; N]) -> Box<[T
     unsafe { Box::from_raw(array_ptr) }
 }
 
+#[macro_export]
+macro_rules! bitarr_typed {
+    [ $bitarr:ty; $($bit:expr),*  $(,)? ] => { {
+        let mut bitarr: $bitarr = <$bitarr>::ZERO;
+
+        for (index, bit) in [ $( ($bit as i32) == 1_i32, )* ].into_iter().enumerate() {
+            bitarr.set(index, bit);
+        }
+
+        bitarr
+    } }
+}
+
+pub struct DebugString(pub String);
+
+impl Debug for DebugString {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.write_str(&self.0)
+    }
+}
+
 #[test]
 fn test_boxed_slice_from_array() {
     let rc: Rc<()> = Rc::new(());
@@ -1127,6 +1533,16 @@ fn test_boxed_slice_from_array() {
     }
 
     assert_eq!(Rc::strong_count(&rc), 1_usize);
+}
+
+pub fn debug_break() {
+    black_box(());
+}
+
+pub fn cond_debug_break(cond: bool) {
+    if cond {
+        debug_break();
+    }
 }
 
 pub fn option_from_poll<T>(poll: Poll<T>) -> Option<T> {
@@ -1182,5 +1598,25 @@ pub fn div_break_on_overflow<I: PrimInt>(a: I, b: I) -> I {
 pub fn assert_eq_break<T: Debug + PartialEq>(left: T, right: T) {
     if left != right {
         assert_eq!(left, right);
+    }
+}
+
+pub fn map_break<T>(value: T) -> T {
+    black_box(());
+
+    value
+}
+
+pub trait UnwrapBreak<T> {
+    fn unwrap_break(self) -> T;
+}
+
+impl<T> UnwrapBreak<T> for Option<T> {
+    fn unwrap_break(self) -> T {
+        if self.is_none() {
+            panic!()
+        } else {
+            self.unwrap()
+        }
     }
 }

@@ -373,7 +373,7 @@ impl Parse for Solution {
                     .then_some(guard_pos_and_dir)
                 })
                 .flatten()
-                .filter(|_| grid.dimensions().cmple(SmallPos::MAX_DIMENSIONS).all())
+                .filter(|_| SmallPos::are_dimensions_valid(grid.dimensions()))
                 .map(|(guard_pos, guard_dir)| {
                     *grid.get_mut(guard_pos).unwrap() = Cell::Empty;
 

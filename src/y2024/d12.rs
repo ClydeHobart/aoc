@@ -399,7 +399,7 @@ impl Parse for Solution {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
         map(
             verify(Grid2D::parse, |grid| {
-                grid.dimensions().cmple(SmallPos::MAX_DIMENSIONS).all()
+                SmallPos::are_dimensions_valid(grid.dimensions())
             }),
             |grid| {
                 let mut solution: Self = Self {

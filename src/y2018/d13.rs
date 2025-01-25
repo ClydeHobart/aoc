@@ -359,43 +359,39 @@ impl Solution {
 impl Parse for Solution {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
         map_opt(Grid2D::parse, |mut grid: Grid2D<Cell>| {
-            grid.dimensions()
-                .cmple(SmallPos::MAX_DIMENSIONS)
-                .all()
-                .then(|| {
-                    let dimensions: IVec2 = grid.dimensions();
+            SmallPos::are_dimensions_valid(grid.dimensions()).then(|| {
+                let dimensions: IVec2 = grid.dimensions();
 
-                    let carts: HashMap<u16, Cart> = grid
-                        .cells_mut()
-                        .iter_mut()
-                        .enumerate()
-                        .filter_map(|(index, cell)| {
-                            let pos: IVec2 =
-                                grid_2d_pos_from_index_and_dimensions(index, dimensions);
+                let carts: HashMap<u16, Cart> = grid
+                    .cells_mut()
+                    .iter_mut()
+                    .enumerate()
+                    .filter_map(|(index, cell)| {
+                        let pos: IVec2 = grid_2d_pos_from_index_and_dimensions(index, dimensions);
 
-                            cell.try_cart_dir().map(|dir| {
-                                *cell = Cell::track_from_cart_dir(dir);
+                        cell.try_cart_dir().map(|dir| {
+                            *cell = Cell::track_from_cart_dir(dir);
 
-                                // SAFETY: `pos` is valid.
-                                (
-                                    unsafe { SmallPosAndDir::from_pos_and_dir_unsafe(pos, dir) }
-                                        .pos
-                                        .sortable_index(),
-                                    Cart {
-                                        dir,
-                                        turn: Turn::Left,
-                                    },
-                                )
-                            })
+                            // SAFETY: `pos` is valid.
+                            (
+                                unsafe { SmallPosAndDir::from_pos_and_dir_unsafe(pos, dir) }
+                                    .pos
+                                    .sortable_index(),
+                                Cart {
+                                    dir,
+                                    turn: Turn::Left,
+                                },
+                            )
                         })
-                        .collect();
+                    })
+                    .collect();
 
-                    Self {
-                        grid,
-                        carts,
-                        sorted_carts: Vec::new(),
-                    }
-                })
+                Self {
+                    grid,
+                    carts,
+                    sorted_carts: Vec::new(),
+                }
+            })
         })(input)
     }
 }

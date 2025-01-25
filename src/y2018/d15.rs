@@ -1,14 +1,14 @@
 use {
     crate::*,
-    nom::{
-        bytes::complete::tag,
-        character::complete::line_ending,
-        combinator::{map, map_res, opt},
-        error::Error,
-        multi::many0,
-        sequence::{preceded, terminated, tuple},
-        Err, IResult,
+    bitvec::prelude::*,
+    glam::IVec2,
+    nom::{combinator::map_opt, error::Error, Err, IResult},
+    std::{
+        fmt::{Display, Write},
+        mem::{take, transmute},
+        str::from_utf8_unchecked,
     },
+    strum::IntoEnumIterator,
 };
 
 /* --- Day 15: Beverage Bandits ---
@@ -295,24 +295,733 @@ Combat ends after 20 full rounds
 Goblins win with 937 total hit points left
 Outcome: 20 * 937 = 18740
 
-What is the outcome of the combat described in your puzzle input? */
+What is the outcome of the combat described in your puzzle input?
+
+--- Part Two ---
+
+According to your calculations, the Elves are going to lose badly. Surely, you won't mess up the timeline too much if you give them just a little advanced technology, right?
+
+You need to make sure the Elves not only win, but also suffer no losses: even the death of a single Elf is unacceptable.
+
+However, you can't go too far: larger changes will be more likely to permanently alter spacetime.
+
+So, you need to find the outcome of the battle in which the Elves have the lowest integer attack power (at least 4) that allows them to win without a single death. The Goblins always have an attack power of 3.
+
+In the first summarized example above, the lowest attack power the Elves need to win without losses is 15:
+
+#######       #######
+#.G...#       #..E..#   E(158)
+#...EG#       #...E.#   E(14)
+#.#.#G#  -->  #.#.#.#
+#..G#E#       #...#.#
+#.....#       #.....#
+#######       #######
+
+Combat ends after 29 full rounds
+Elves win with 172 total hit points left
+Outcome: 29 * 172 = 4988
+
+In the second example above, the Elves need only 4 attack power:
+
+#######       #######
+#E..EG#       #.E.E.#   E(200), E(23)
+#.#G.E#       #.#E..#   E(200)
+#E.##E#  -->  #E.##E#   E(125), E(200)
+#G..#.#       #.E.#.#   E(200)
+#..E#.#       #...#.#
+#######       #######
+
+Combat ends after 33 full rounds
+Elves win with 948 total hit points left
+Outcome: 33 * 948 = 31284
+
+In the third example above, the Elves need 15 attack power:
+
+#######       #######
+#E.G#.#       #.E.#.#   E(8)
+#.#G..#       #.#E..#   E(86)
+#G.#.G#  -->  #..#..#
+#G..#.#       #...#.#
+#...E.#       #.....#
+#######       #######
+
+Combat ends after 37 full rounds
+Elves win with 94 total hit points left
+Outcome: 37 * 94 = 3478
+
+In the fourth example above, the Elves need 12 attack power:
+
+#######       #######
+#.E...#       #...E.#   E(14)
+#.#..G#       #.#..E#   E(152)
+#.###.#  -->  #.###.#
+#E#G#G#       #.#.#.#
+#...#G#       #...#.#
+#######       #######
+
+Combat ends after 39 full rounds
+Elves win with 166 total hit points left
+Outcome: 39 * 166 = 6474
+
+In the last example above, the lone Elf needs 34 attack power:
+
+#########       #########
+#G......#       #.......#
+#.E.#...#       #.E.#...#   E(38)
+#..##..G#       #..##...#
+#...##..#  -->  #...##..#
+#...#...#       #...#...#
+#.G...G.#       #.......#
+#.....G.#       #.......#
+#########       #########
+
+Combat ends after 30 full rounds
+Elves win with 38 total hit points left
+Outcome: 30 * 38 = 1140
+
+After increasing the Elves' attack power until it is just barely enough for them to win without any Elves dying, what is the outcome of the combat described in your puzzle input? */
+
+define_cell! {
+    #[repr(u8)]
+    #[cfg_attr(test, derive(Debug))]
+    #[derive(Clone, Copy, Default, Eq, Ord, PartialEq, PartialOrd,)]
+    enum Cell {
+        #[default]
+        Open = OPEN = b'.',
+        Wall = WALL = b'#',
+        Goblin = GOBLIN = b'G',
+        Elf = ELF = b'E',
+    }
+}
+
+impl Cell {
+    fn is_unit(self) -> bool {
+        matches!(self, Self::Goblin | Self::Elf)
+    }
+
+    fn try_enemy(self) -> Option<Self> {
+        match self {
+            Self::Goblin => Some(Self::Elf),
+            Self::Elf => Some(Self::Goblin),
+            _ => None,
+        }
+    }
+}
+
+type UnitIndexRaw = u8;
+type UnitIndex = Index<UnitIndexRaw>;
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct Solution;
+#[derive(Clone, Copy)]
+struct UnitData {
+    hit_points: u8,
+}
+
+impl UnitData {
+    const INITIAL_HIT_POINTS: u8 = 200_u8;
+
+    const fn new() -> Self {
+        Self {
+            hit_points: Self::INITIAL_HIT_POINTS,
+        }
+    }
+
+    fn is_dead(self) -> bool {
+        self.hit_points == 0_u8
+    }
+
+    fn receive_damage(&mut self, attack_power: u8) {
+        self.hit_points = self.hit_points.saturating_sub(attack_power);
+    }
+}
+
+impl Default for UnitData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+type Unit = TableElement<SmallPos, UnitData>;
+type UnitTable = Table<SmallPos, UnitData, UnitIndexRaw>;
+
+type UnitTypeIndexRaw = u8;
+type UnitTypeIndex = Index<UnitTypeIndexRaw>;
+
+#[cfg_attr(test, derive(Debug))]
+#[derive(Clone, Copy, PartialEq)]
+struct UnitTypeData {
+    unit_count: u16,
+    attack_power: u8,
+}
+
+impl UnitTypeData {
+    const ATTACK_POWER: u8 = 3_u8;
+}
+
+impl Default for UnitTypeData {
+    fn default() -> Self {
+        Self {
+            unit_count: 0_u16,
+            attack_power: Self::ATTACK_POWER,
+        }
+    }
+}
+
+type UnitType = TableElement<Cell, UnitTypeData>;
+type UnitTypeTable = Table<Cell, UnitTypeData, UnitTypeIndexRaw>;
+
+struct RunState {
+    unit_small_poses: Vec<SmallPos>,
+    bfs_state: BreadthFirstSearchState<IVec2>,
+    unit_pos: IVec2,
+    dist_from_unit: Grid2D<u16>,
+    selected_in_range_pos: IVec2,
+    is_along_fastest_path: BitVec,
+}
+
+impl RunState {
+    fn new(solution: &Solution) -> Self {
+        RunState {
+            unit_small_poses: Vec::new(),
+            bfs_state: BreadthFirstSearchState::default(),
+            unit_pos: IVec2::ZERO,
+            dist_from_unit: Grid2D::try_from_cells_and_dimensions(
+                vec![u16::MAX; solution.grid.cells().len()],
+                solution.grid.dimensions(),
+            )
+            .unwrap(),
+            selected_in_range_pos: IVec2::ZERO,
+            is_along_fastest_path: bitvec![0; solution.grid.cells().len()],
+        }
+    }
+}
+
+struct DistFromUnitPopulator<'s> {
+    solution: &'s Solution,
+    state: &'s mut RunState,
+}
+
+impl<'s> BreadthFirstSearch for DistFromUnitPopulator<'s> {
+    type Vertex = IVec2;
+
+    fn start(&self) -> &Self::Vertex {
+        &self.state.unit_pos
+    }
+
+    fn is_end(&self, _vertex: &Self::Vertex) -> bool {
+        false
+    }
+
+    fn path_to(&self, _vertex: &Self::Vertex) -> Vec<Self::Vertex> {
+        unreachable!()
+    }
+
+    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>) {
+        neighbors.clear();
+        neighbors.extend(Direction::iter().filter_map(|dir| {
+            let neighbor: IVec2 = *vertex + dir.vec();
+
+            self.solution
+                .grid
+                .get(neighbor)
+                .and_then(|&neighbor_cell| (neighbor_cell == Cell::Open).then_some(neighbor))
+        }));
+    }
+
+    fn update_parent(&mut self, from: &Self::Vertex, to: &Self::Vertex) {
+        let from_dist: u16 = *self.state.dist_from_unit.get(*from).unwrap();
+
+        *self.state.dist_from_unit.get_mut(*to).unwrap() = from_dist + 1_u16;
+    }
+
+    fn reset(&mut self) {
+        self.state.dist_from_unit.cells_mut().fill(u16::MAX);
+        *self
+            .state
+            .dist_from_unit
+            .get_mut(self.state.unit_pos)
+            .unwrap() = 0_u16;
+    }
+}
+
+struct IsAlongFastestPathDeterminer<'s> {
+    solution: &'s Solution,
+    state: &'s mut RunState,
+}
+
+impl<'s> BreadthFirstSearch for IsAlongFastestPathDeterminer<'s> {
+    type Vertex = IVec2;
+
+    fn start(&self) -> &Self::Vertex {
+        &self.state.selected_in_range_pos
+    }
+
+    fn is_end(&self, _vertex: &Self::Vertex) -> bool {
+        false
+    }
+
+    fn path_to(&self, _vertex: &Self::Vertex) -> Vec<Self::Vertex> {
+        unreachable!()
+    }
+
+    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>) {
+        let vertex_dist: u16 = *self.state.dist_from_unit.get(*vertex).unwrap();
+
+        neighbors.clear();
+        neighbors.extend(Direction::iter().filter_map(|dir| {
+            let neighbor: IVec2 = *vertex + dir.vec();
+
+            self.state
+                .dist_from_unit
+                .get(neighbor)
+                .and_then(|&neighbor_dist| {
+                    (neighbor_dist != u16::MAX && neighbor_dist + 1_u16 == vertex_dist)
+                        .then_some(neighbor)
+                })
+        }))
+    }
+
+    fn update_parent(&mut self, _from: &Self::Vertex, to: &Self::Vertex) {
+        self.state
+            .is_along_fastest_path
+            .set(self.solution.grid.index_from_pos(*to), true);
+    }
+
+    fn reset(&mut self) {
+        self.state.is_along_fastest_path.fill(false);
+        self.state.is_along_fastest_path.set(
+            self.solution
+                .grid
+                .index_from_pos(self.state.selected_in_range_pos),
+            true,
+        );
+    }
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Clone)]
+pub struct Solution {
+    grid: Grid2D<Cell>,
+    units: UnitTable,
+    unit_types: UnitTypeTable,
+    rounds: usize,
+}
+
+impl Solution {
+    fn append_dyn_display_to_report_string(dyn_display: &dyn Display, report_string: &mut String) {
+        write!(report_string, "{dyn_display}").ok();
+    }
+
+    fn try_choose_movement_pos(
+        &self,
+        unit_pos: IVec2,
+        run_state: &mut RunState,
+    ) -> Option<SmallPos> {
+        let enemy_cell: Cell = self.grid.get(unit_pos)?.try_enemy()?;
+
+        run_state.unit_pos = unit_pos;
+
+        let mut bfs_state: BreadthFirstSearchState<IVec2> = take(&mut run_state.bfs_state);
+
+        DistFromUnitPopulator {
+            solution: self,
+            state: run_state,
+        }
+        .run_internal(&mut bfs_state);
+
+        let selected_in_range_pos: IVec2 = {
+            let unit_move_selection_state: &RunState = run_state;
+
+            self.units
+                .as_slice()
+                .iter()
+                .filter_map(|unit| {
+                    let target_pos: IVec2 = unit.id.get();
+
+                    self.grid
+                        .get(target_pos)
+                        .and_then(|&unit_cell| (unit_cell == enemy_cell).then_some(target_pos))
+                })
+                .flat_map(|target_pos| {
+                    Direction::iter().filter_map(move |dir| {
+                        let in_range_pos: IVec2 = target_pos + dir.vec();
+
+                        unit_move_selection_state
+                            .dist_from_unit
+                            .get(in_range_pos)
+                            .and_then(|&dist| {
+                                (dist != u16::MAX).then_some((
+                                    in_range_pos,
+                                    self.grid.index_from_pos(in_range_pos),
+                                    dist,
+                                ))
+                            })
+                    })
+                })
+                .min_by(|(_, index_a, dist_a), (_, index_b, dist_b)| {
+                    dist_a.cmp(dist_b).then_with(|| index_a.cmp(index_b))
+                })
+                .map(|(in_range_pos, _, _)| in_range_pos)?
+        };
+
+        run_state.selected_in_range_pos = selected_in_range_pos;
+
+        IsAlongFastestPathDeterminer {
+            solution: self,
+            state: run_state,
+        }
+        .run_internal(&mut bfs_state);
+
+        run_state.bfs_state = bfs_state;
+
+        Direction::iter()
+            .filter_map(|dir| {
+                let movement_pos: IVec2 = unit_pos + dir.vec();
+
+                self.grid
+                    .try_index_from_pos(movement_pos)
+                    .and_then(|index| {
+                        run_state.is_along_fastest_path[index].then_some((movement_pos, index))
+                    })
+            })
+            .min_by_key(|&(_, index)| index)
+            .and_then(|(movement_pos, _)| (movement_pos != unit_pos).then_some(movement_pos))
+            .and_then(SmallPos::try_from_pos)
+    }
+
+    fn is_combat_active(&self) -> bool {
+        self.unit_types.as_slice().len() > 1_usize
+    }
+
+    fn product_of_rounds_and_hit_points_sum(&self) -> usize {
+        self.rounds
+            * self
+                .units
+                .as_slice()
+                .iter()
+                .map(|unit| unit.data.hit_points as usize)
+                .sum::<usize>()
+    }
+
+    fn outcome_and_solution(&self) -> (usize, Self) {
+        let mut solution: Solution = self.clone();
+
+        solution.run();
+
+        (solution.product_of_rounds_and_hit_points_sum(), solution)
+    }
+
+    fn outcome(&self) -> usize {
+        self.outcome_and_solution().0
+    }
+
+    fn report_string(&self) -> String {
+        let mut report_string: String = String::new();
+        let width: usize = self.grid.dimensions().x as usize;
+
+        for (row_index, row_cells) in self.grid.cells().chunks_exact(width).enumerate() {
+            Self::append_dyn_display_to_report_string(
+                unsafe { &from_utf8_unchecked(transmute(row_cells)) } as &dyn Display,
+                &mut report_string,
+            );
+
+            for (unit_row_index, (unit_char, hit_points)) in row_cells
+                .iter()
+                .enumerate()
+                .filter_map(|(col_index, cell)| {
+                    cell.is_unit().then(|| {
+                        let unit_pos: IVec2 =
+                            self.grid.pos_from_index(row_index * width + col_index);
+
+                        // SAFETY: `unit_pos` is valid
+                        let unit_small_pos: SmallPos =
+                            unsafe { SmallPos::from_pos_unsafe(unit_pos) };
+
+                        (
+                            *cell as u8 as char,
+                            self.units.as_slice()
+                                [self.units.find_index_binary_search(&unit_small_pos).get()]
+                            .data
+                            .hit_points,
+                        )
+                    })
+                })
+                .enumerate()
+            {
+                Self::append_dyn_display_to_report_string(
+                    &if unit_row_index == 0_usize {
+                        "   "
+                    } else {
+                        ", "
+                    } as &dyn Display,
+                    &mut report_string,
+                );
+                Self::append_dyn_display_to_report_string(
+                    &unit_char as &dyn Display,
+                    &mut report_string,
+                );
+                Self::append_dyn_display_to_report_string(&"(" as &dyn Display, &mut report_string);
+                Self::append_dyn_display_to_report_string(
+                    &hit_points as &dyn Display,
+                    &mut report_string,
+                );
+                Self::append_dyn_display_to_report_string(&")" as &dyn Display, &mut report_string);
+            }
+
+            Self::append_dyn_display_to_report_string(&"\n" as &dyn Display, &mut report_string);
+        }
+
+        report_string
+    }
+
+    fn elf_win_outcome_and_solution(&self) -> (usize, Self) {
+        let mut unit_types: [UnitType; 2_usize] = [
+            TableElement {
+                id: Default::default(),
+                data: Default::default(),
+            },
+            TableElement {
+                id: Default::default(),
+                data: Default::default(),
+            },
+        ];
+
+        unit_types.clone_from_slice(self.unit_types.as_slice());
+
+        let elf_unit_type_index: usize = self.unit_types.find_index(&Cell::Elf).get();
+
+        let mut solution: Solution = self.clone();
+        let mut run_state: RunState = RunState::new(self);
+
+        while {
+            let initial_elf_unit_type: UnitType =
+                solution.unit_types.as_slice()[elf_unit_type_index].clone();
+
+            while solution.run_round(&mut run_state) {}
+
+            solution.unit_types.as_slice()[0_usize] != initial_elf_unit_type
+        } {
+            solution.grid.cells_mut().copy_from_slice(self.grid.cells());
+            solution.units.clear();
+
+            for unit in self.units.as_slice() {
+                solution.units.insert_binary_search(unit.id, unit.data);
+            }
+
+            unit_types[elf_unit_type_index].data.attack_power += 1_u8;
+            solution.unit_types.clear();
+
+            for unit_type in &unit_types {
+                solution.unit_types.insert(unit_type.id, unit_type.data);
+            }
+
+            solution.rounds = 0_usize;
+        }
+
+        (solution.product_of_rounds_and_hit_points_sum(), solution)
+    }
+
+    fn elf_win_outcome(&self) -> usize {
+        self.elf_win_outcome_and_solution().0
+    }
+
+    fn run_round(&mut self, run_state: &mut RunState) -> bool {
+        let mut unit_small_poses: Vec<SmallPos> = take(&mut run_state.unit_small_poses);
+
+        unit_small_poses.clear();
+        unit_small_poses.extend(self.units.as_slice().iter().map(|unit| unit.id));
+
+        let is_combat_active: bool = unit_small_poses
+            .drain(..)
+            .try_fold((), |_, mut unit_small_pos| {
+                let mut unit_pos: IVec2 = unit_small_pos.get();
+                let unit_cell: Cell = *self.grid.get(unit_pos).unwrap();
+
+                if !unit_cell.is_unit() {
+                    Some(())
+                } else if !self.is_combat_active() {
+                    None
+                } else {
+                    if let Some(movement_small_pos) =
+                        self.try_choose_movement_pos(unit_pos, run_state)
+                    {
+                        let unit_index: UnitIndex =
+                            self.units.find_index_binary_search(&unit_small_pos);
+
+                        assert!(unit_index.is_valid());
+
+                        *self.grid.get_mut(unit_pos).unwrap() = Cell::Open;
+
+                        unit_small_pos = movement_small_pos;
+                        unit_pos = unit_small_pos.get();
+
+                        *self.grid.get_mut(unit_pos).unwrap() = unit_cell;
+                        self.units.as_slice_mut()[unit_index.get()].id = unit_small_pos;
+                        self.units.sort_by_id();
+                    }
+
+                    if let Some((target_unit_cell, target_unit_index)) =
+                        unit_cell.try_enemy().and_then(|target_unit_cell| {
+                            Direction::iter()
+                                .filter_map(|dir| {
+                                    let target_pos: IVec2 = unit_pos + dir.vec();
+
+                                    self.grid.get(target_pos).and_then(|&cell| {
+                                        (cell == target_unit_cell).then(|| {
+                                            // SAFETY: `in_range_pos` is valid.
+                                            let target_small_pos: SmallPos =
+                                                unsafe { SmallPos::from_pos_unsafe(target_pos) };
+                                            let target_unit_index: UnitIndex = self
+                                                .units
+                                                .find_index_binary_search(&target_small_pos);
+
+                                            (
+                                                target_unit_index,
+                                                self.units.as_slice()[target_unit_index.get()]
+                                                    .data
+                                                    .hit_points,
+                                                self.grid.index_from_pos(target_pos),
+                                            )
+                                        })
+                                    })
+                                })
+                                .min_by_key(|&(_, hit_points, index)| (hit_points, index))
+                                .map(|(target_unit_index, _, _)| {
+                                    (target_unit_cell, target_unit_index)
+                                })
+                        })
+                    {
+                        let target_unit: &mut Unit =
+                            &mut self.units.as_slice_mut()[target_unit_index.get()];
+
+                        let attack_power: u8 = self.unit_types.as_slice()
+                            [self.unit_types.find_index(&unit_cell).get()]
+                        .data
+                        .attack_power;
+
+                        target_unit.data.receive_damage(attack_power);
+
+                        if target_unit.data.is_dead() {
+                            *self
+                                .grid
+                                .get_mut(self.units.remove_by_index(target_unit_index).id.get())
+                                .unwrap() = Cell::Open;
+
+                            let target_unit_type_index: UnitTypeIndex =
+                                self.unit_types.find_index(&target_unit_cell);
+                            let target_unit_type_unit_count: &mut u16 =
+                                &mut self.unit_types.as_slice_mut()[target_unit_type_index.get()]
+                                    .data
+                                    .unit_count;
+
+                            *target_unit_type_unit_count -= 1_u16;
+
+                            if *target_unit_type_unit_count == 0_u16 {
+                                self.unit_types.remove_by_index(target_unit_type_index);
+                            }
+                        }
+                    }
+
+                    Some(())
+                }
+            })
+            .is_some();
+
+        run_state.unit_small_poses = unit_small_poses;
+
+        self.rounds += is_combat_active as usize;
+
+        is_combat_active
+    }
+
+    fn run(&mut self) {
+        let mut run_state: RunState = RunState::new(self);
+
+        while self.run_round(&mut run_state) {}
+    }
+}
 
 impl Parse for Solution {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
-        todo!()
+        map_opt(Grid2D::parse, |grid: Grid2D<Cell>| {
+            (SmallPos::are_dimensions_valid(grid.dimensions())
+                && grid.iter_filtered_positions(|cell| cell.is_unit()).count()
+                    < UnitIndexRaw::MAX as usize)
+                .then(|| {
+                    let units: UnitTable = grid
+                        .cells()
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, cell)| {
+                            cell.is_unit().then(|| Unit {
+                                id: unsafe {
+                                    SmallPos::from_pos_unsafe(grid.pos_from_index(index))
+                                },
+                                data: UnitData::new(),
+                            })
+                        })
+                        .collect::<Vec<Unit>>()
+                        .try_into()
+                        .unwrap();
+
+                    let mut unit_types: UnitTypeTable = UnitTypeTable::new();
+
+                    for unit in units
+                        .as_slice()
+                        .iter()
+                        .map(|unit| grid.get(unit.id.get()).unwrap())
+                    {
+                        let unit_type_index: UnitTypeIndex = unit_types.find_or_add_index(unit);
+
+                        unit_types.as_slice_mut()[unit_type_index.get()]
+                            .data
+                            .unit_count += 1_u16;
+                    }
+
+                    unit_types.sort_by_id();
+
+                    let rounds: usize = 0_usize;
+
+                    Self {
+                        grid,
+                        units,
+                        unit_types,
+                        rounds,
+                    }
+                })
+        })(input)
     }
 }
 
 impl RunQuestions for Solution {
+    /// Are you not entertained?
     fn q1_internal(&mut self, args: &QuestionArgs) {
-        todo!();
+        if args.verbose {
+            let (outcome, solution): (usize, Self) = self.outcome_and_solution();
+
+            dbg!(outcome);
+
+            println!("{}", solution.report_string());
+        } else {
+            dbg!(self.outcome());
+        }
     }
 
+    /// I think there's still room for optimization here. It takes a bit on this one. Binary search,
+    /// first going up, then once an upper and lower bound do normal binary search?
     fn q2_internal(&mut self, args: &QuestionArgs) {
-        todo!();
+        if args.verbose {
+            let (outcome, solution): (usize, Self) = self.elf_win_outcome_and_solution();
+
+            dbg!(
+                outcome,
+                solution.unit_types.as_slice()[0_usize].data.attack_power
+            );
+
+            println!("{}", solution.report_string());
+        } else {
+            dbg!(self.elf_win_outcome());
+        }
     }
 }
 
@@ -328,12 +1037,190 @@ impl<'i> TryFrom<&'i str> for Solution {
 mod tests {
     use {super::*, std::sync::OnceLock};
 
-    const SOLUTION_STRS: &'static [&'static str] = &[""];
+    const SOLUTION_STRS: &'static [&'static str] = &[
+        "\
+        #######\n\
+        #.G...#\n\
+        #...EG#\n\
+        #.#.#G#\n\
+        #..G#E#\n\
+        #.....#\n\
+        #######\n",
+        "\
+        #######\n\
+        #G..#E#\n\
+        #E#E.E#\n\
+        #G.##.#\n\
+        #...#E#\n\
+        #...E.#\n\
+        #######\n",
+        "\
+        #######\n\
+        #E..EG#\n\
+        #.#G.E#\n\
+        #E.##E#\n\
+        #G..#.#\n\
+        #..E#.#\n\
+        #######\n",
+        "\
+        #######\n\
+        #E.G#.#\n\
+        #.#G..#\n\
+        #G.#.G#\n\
+        #G..#.#\n\
+        #...E.#\n\
+        #######\n",
+        "\
+        #######\n\
+        #.E...#\n\
+        #.#..G#\n\
+        #.###.#\n\
+        #E#G#G#\n\
+        #...#G#\n\
+        #######\n",
+        "\
+        #########\n\
+        #G......#\n\
+        #.E.#...#\n\
+        #..##..G#\n\
+        #...##..#\n\
+        #...#...#\n\
+        #.G...G.#\n\
+        #.....G.#\n\
+        #########\n",
+    ];
 
     fn solution(index: usize) -> &'static Solution {
         static ONCE_LOCK: OnceLock<Vec<Solution>> = OnceLock::new();
 
-        &ONCE_LOCK.get_or_init(|| vec![])[index]
+        &ONCE_LOCK.get_or_init(|| {
+            use Cell::{Elf as E, Goblin as G, Open as O, Wall as W};
+
+            macro_rules! units {
+                [ $( ($x:expr, $y:expr), )* ] => { vec![ $(
+                    TableElement { id: SmallPos { x: $x, y: $y }, data: UnitData::new() },
+                )* ].try_into().unwrap() }
+            }
+
+            macro_rules! unit_counts {
+                [ $( ( $cell:expr, $count:expr ), )* ] => { vec![ $(
+                    TableElement {
+                        id: $cell,
+                        data: UnitTypeData {
+                            unit_count: $count,
+                            attack_power: UnitTypeData::ATTACK_POWER
+                        },
+                    },
+                )* ].try_into().unwrap() }
+            }
+
+            vec![
+                Solution {
+                    grid: Grid2D::try_from_cells_and_dimensions(
+                        vec![
+                            W, W, W, W, W, W, W, W, O, G, O, O, O, W, W, O, O, O, E, G, W, W, O, W,
+                            O, W, G, W, W, O, O, G, W, E, W, W, O, O, O, O, O, W, W, W, W, W, W, W,
+                            W,
+                        ],
+                        7_i32 * IVec2::ONE,
+                    )
+                    .unwrap(),
+                    units: units![(2, 1), (4, 2), (5, 2), (5, 3), (3, 4), (5, 4),],
+                    unit_types: unit_counts![(E, 2_u16), (G, 4_u16),],
+                    rounds: 0_usize,
+                },
+                Solution {
+                    grid: Grid2D::try_from_cells_and_dimensions(
+                        vec![
+                            W, W, W, W, W, W, W, W, G, O, O, W, E, W, W, E, W, E, O, E, W, W, G, O,
+                            W, W, O, W, W, O, O, O, W, E, W, W, O, O, O, E, O, W, W, W, W, W, W, W,
+                            W,
+                        ],
+                        7_i32 * IVec2::ONE,
+                    )
+                    .unwrap(),
+                    units: units![
+                        (1, 1),
+                        (5, 1),
+                        (1, 2),
+                        (3, 2),
+                        (5, 2),
+                        (1, 3),
+                        (5, 4),
+                        (4, 5),
+                    ],
+                    unit_types: unit_counts![(E, 6_u16), (G, 2_u16),],
+                    rounds: 0_usize,
+                },
+                Solution {
+                    grid: Grid2D::try_from_cells_and_dimensions(
+                        vec![
+                            W, W, W, W, W, W, W, W, E, O, O, E, G, W, W, O, W, G, O, E, W, W, E, O,
+                            W, W, E, W, W, G, O, O, W, O, W, W, O, O, E, W, O, W, W, W, W, W, W, W,
+                            W,
+                        ],
+                        7_i32 * IVec2::ONE,
+                    )
+                    .unwrap(),
+                    units: units![
+                        (1, 1),
+                        (4, 1),
+                        (5, 1),
+                        (3, 2),
+                        (5, 2),
+                        (1, 3),
+                        (5, 3),
+                        (1, 4),
+                        (3, 5),
+                    ],
+                    unit_types: unit_counts![(E, 6_u16), (G, 3_u16),],
+                    rounds: 0_usize,
+                },
+                Solution {
+                    grid: Grid2D::try_from_cells_and_dimensions(
+                        vec![
+                            W, W, W, W, W, W, W, W, E, O, G, W, O, W, W, O, W, G, O, O, W, W, G, O,
+                            W, O, G, W, W, G, O, O, W, O, W, W, O, O, O, E, O, W, W, W, W, W, W, W,
+                            W,
+                        ],
+                        7_i32 * IVec2::ONE,
+                    )
+                    .unwrap(),
+                    units: units![(1, 1), (3, 1), (3, 2), (1, 3), (5, 3), (1, 4), (4, 5),],
+                    unit_types: unit_counts![(E, 2_u16), (G, 5_u16),],
+                    rounds: 0_usize,
+                },
+                Solution {
+                    grid: Grid2D::try_from_cells_and_dimensions(
+                        vec![
+                            W, W, W, W, W, W, W, W, O, E, O, O, O, W, W, O, W, O, O, G, W, W, O, W,
+                            W, W, O, W, W, E, W, G, W, G, W, W, O, O, O, W, G, W, W, W, W, W, W, W,
+                            W,
+                        ],
+                        7_i32 * IVec2::ONE,
+                    )
+                    .unwrap(),
+                    units: units![(2, 1), (5, 2), (1, 4), (3, 4), (5, 4), (5, 5),],
+                    unit_types: unit_counts![(E, 2_u16), (G, 4_u16),],
+                    rounds: 0_usize,
+                },
+                Solution {
+                    grid: Grid2D::try_from_cells_and_dimensions(
+                        vec![
+                            W, W, W, W, W, W, W, W, W, W, G, O, O, O, O, O, O, W, W, O, E, O, W, O,
+                            O, O, W, W, O, O, W, W, O, O, G, W, W, O, O, O, W, W, O, O, W, W, O, O,
+                            O, W, O, O, O, W, W, O, G, O, O, O, G, O, W, W, O, O, O, O, O, G, O, W,
+                            W, W, W, W, W, W, W, W, W,
+                        ],
+                        9_i32 * IVec2::ONE,
+                    )
+                    .unwrap(),
+                    units: units![(1, 1), (2, 2), (7, 3), (2, 6), (6, 6), (6, 7),],
+                    unit_types: unit_counts![(E, 1_u16), (G, 5_u16),],
+                    rounds: 0_usize,
+                },
+            ]
+        })[index]
     }
 
     #[test]
@@ -343,6 +1230,255 @@ mod tests {
                 Solution::try_from(solution_str).as_ref(),
                 Ok(solution(index))
             );
+        }
+    }
+
+    #[test]
+    fn test_try_choose_movement_pos() {
+        let solution: Solution = Solution::try_from(
+            "\
+            #######\n\
+            #E..G.#\n\
+            #...#.#\n\
+            #.G.#G#\n\
+            #######\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            solution.try_choose_movement_pos((1_i32, 1_i32).into(), &mut RunState::new(&solution)),
+            Some(SmallPos { x: 2_u8, y: 1_u8 })
+        );
+
+        let solution: Solution = Solution::try_from(
+            "\
+            #######\n\
+            #.E...#\n\
+            #.....#\n\
+            #...G.#\n\
+            #######\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            solution.try_choose_movement_pos((2_i32, 1_i32).into(), &mut RunState::new(&solution)),
+            Some(SmallPos { x: 3_u8, y: 1_u8 })
+        );
+    }
+
+    #[test]
+    fn test_run_round() {
+        let mut solution: Solution = Solution::try_from(
+            "\
+            #########\n\
+            #G..G..G#\n\
+            #.......#\n\
+            #.......#\n\
+            #G..E..G#\n\
+            #.......#\n\
+            #.......#\n\
+            #G..G..G#\n\
+            #########\n",
+        )
+        .unwrap();
+        let mut run_state: RunState = RunState::new(&solution);
+
+        for grid_string in [
+            "\
+            #########\n\
+            #.G...G.#\n\
+            #...G...#\n\
+            #...E..G#\n\
+            #.G.....#\n\
+            #.......#\n\
+            #G..G..G#\n\
+            #.......#\n\
+            #########\n",
+            "\
+            #########\n\
+            #..G.G..#\n\
+            #...G...#\n\
+            #.G.E.G.#\n\
+            #.......#\n\
+            #G..G..G#\n\
+            #.......#\n\
+            #.......#\n\
+            #########\n",
+            "\
+            #########\n\
+            #.......#\n\
+            #..GGG..#\n\
+            #..GEG..#\n\
+            #G..G...#\n\
+            #......G#\n\
+            #.......#\n\
+            #.......#\n\
+            #########\n",
+        ] {
+            solution.run_round(&mut run_state);
+
+            assert_eq!(String::from(solution.grid.clone()), grid_string);
+        }
+    }
+
+    #[test]
+    fn test_run() {
+        for (index, grid_string) in [
+            "\
+            #######\n\
+            #G....#\n\
+            #.G...#\n\
+            #.#.#G#\n\
+            #...#.#\n\
+            #....G#\n\
+            #######\n",
+            "\
+            #######\n\
+            #...#E#\n\
+            #E#...#\n\
+            #.E##.#\n\
+            #E..#E#\n\
+            #.....#\n\
+            #######\n",
+            "\
+            #######\n\
+            #.E.E.#\n\
+            #.#E..#\n\
+            #E.##.#\n\
+            #.E.#.#\n\
+            #...#.#\n\
+            #######\n",
+            "\
+            #######\n\
+            #G.G#.#\n\
+            #.#G..#\n\
+            #..#..#\n\
+            #...#G#\n\
+            #...G.#\n\
+            #######\n",
+            "\
+            #######\n\
+            #.....#\n\
+            #.#G..#\n\
+            #.###.#\n\
+            #.#.#.#\n\
+            #G.G#G#\n\
+            #######\n",
+            "\
+            #########\n\
+            #.G.....#\n\
+            #G.G#...#\n\
+            #.G##...#\n\
+            #...##..#\n\
+            #.G.#...#\n\
+            #.......#\n\
+            #.......#\n\
+            #########\n",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut solution: Solution = solution(index).clone();
+
+            solution.run();
+
+            assert_eq!(String::from(solution.grid), grid_string);
+        }
+    }
+
+    #[test]
+    fn test_outcome() {
+        for (index, outcome) in [
+            27730_usize,
+            36334_usize,
+            39514_usize,
+            27755_usize,
+            28944_usize,
+            18740_usize,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(solution(index).outcome(), outcome);
+        }
+    }
+
+    #[test]
+    fn test_elf_win_outcome_and_solution() {
+        for (index, elf_win_outcome_grid_string_and_attack_power) in [
+            Some((
+                4988_usize,
+                "\
+                #######\n\
+                #..E..#\n\
+                #...E.#\n\
+                #.#.#.#\n\
+                #...#.#\n\
+                #.....#\n\
+                #######\n",
+                15_u8,
+            )),
+            None,
+            None,
+            Some((
+                3478_usize,
+                "\
+                #######\n\
+                #.E.#.#\n\
+                #.#E..#\n\
+                #..#..#\n\
+                #...#.#\n\
+                #.....#\n\
+                #######\n",
+                15_u8,
+            )),
+            Some((
+                6474_usize,
+                "\
+                #######\n\
+                #...E.#\n\
+                #.#..E#\n\
+                #.###.#\n\
+                #.#.#.#\n\
+                #...#.#\n\
+                #######\n",
+                12_u8,
+            )),
+            Some((
+                1140_usize,
+                "\
+                #########\n\
+                #.......#\n\
+                #.E.#...#\n\
+                #..##...#\n\
+                #...##..#\n\
+                #...#...#\n\
+                #.......#\n\
+                #.......#\n\
+                #########\n",
+                34_u8,
+            )),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if let Some((outcome, grid_string, attack_power)) =
+                elf_win_outcome_grid_string_and_attack_power
+            {
+                let elf_win_outcome_and_solution = solution(index).elf_win_outcome_and_solution();
+
+                assert_eq!(elf_win_outcome_and_solution.0, outcome);
+                assert_eq!(
+                    String::from(elf_win_outcome_and_solution.1.grid),
+                    grid_string
+                );
+                assert_eq!(
+                    elf_win_outcome_and_solution.1.unit_types.as_slice()[0_usize]
+                        .data
+                        .attack_power,
+                    attack_power
+                );
+            }
         }
     }
 

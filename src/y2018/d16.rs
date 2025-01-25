@@ -1,14 +1,19 @@
 use {
     crate::*,
+    bitvec::prelude::*,
     nom::{
+        branch::alt,
         bytes::complete::tag,
         character::complete::line_ending,
-        combinator::{map, map_res, opt},
-        error::Error,
-        multi::many0,
-        sequence::{preceded, terminated, tuple},
+        combinator::{map, map_opt, opt},
+        error::Error as NomError,
+        multi::separated_list0,
+        sequence::{delimited, separated_pair, tuple},
         Err, IResult,
     },
+    num::{NumCast, Zero},
+    std::mem::transmute,
+    strum::EnumCount,
 };
 
 /* --- Day 16: Chronal Classification ---
@@ -80,29 +85,498 @@ None of the other opcodes produce the result captured in the sample. Because of 
 
 You collect many of these samples (the first section of your puzzle input). The manual also includes a small test program (the second section of your puzzle input) - you can ignore it for now.
 
-Ignoring the opcode numbers, how many samples in your puzzle input behave like three or more opcodes? */
+Ignoring the opcode numbers, how many samples in your puzzle input behave like three or more opcodes?
+
+--- Part Two ---
+
+Using the samples you collected, work out the number of each opcode and execute the test program (the second section of your puzzle input).
+
+What value is contained in register 0 after executing the test program? */
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub enum Error {
+    InvalidRegisterIndexRegister { register: RegisterRaw },
+    InvalidOpCodeUsize { value: usize },
+    InvalidOpCodeRegisterRaw { value: RegisterRaw },
+    AddOverflow { a: RegisterRaw, b: RegisterRaw },
+    MulOverflow { a: RegisterRaw, b: RegisterRaw },
+    OpCodeRegisterHasNoPotentialOpCodes { op_code: RegisterRaw },
+    OpCodeMappingFinderFailed,
+}
+
+pub type RegisterRaw = i32;
+
+const DEFAULT_REGISTERS_LEN: usize = 4_usize;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Registers<const LEN: usize = DEFAULT_REGISTERS_LEN>(pub [RegisterRaw; LEN]);
+
+impl<const LEN: usize> Default for Registers<LEN> {
+    fn default() -> Self {
+        Self(LargeArrayDefault::large_array_default())
+    }
+}
+
+impl<const LEN: usize> Registers<LEN> {
+    pub fn try_register_index(register: RegisterRaw) -> Result<usize, Error> {
+        <usize as NumCast>::from(register)
+            .filter(|&register_index| register_index < LEN)
+            .ok_or(Error::InvalidRegisterIndexRegister { register })
+    }
+}
+
+impl<const LEN: usize> Parse for Registers<LEN> {
+    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
+        delimited(
+            tag("["),
+            map(parse_separated_array(parse_integer, tag(", ")), Self),
+            tag("]"),
+        )(input)
+    }
+}
+
+// These are allowed because they're constructed in `TryFrom::try_from`.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, EnumCount, Eq, Hash, PartialEq)]
+#[repr(u8)]
+pub enum OpCode {
+    AddR,
+    AddI,
+    MulR,
+    MulI,
+    BAnR,
+    BAnI,
+    BOrR,
+    BOrI,
+    SetR,
+    SetI,
+    GTIR,
+    GTRI,
+    GTRR,
+    EqIR,
+    EqRI,
+    EqRR,
+}
+
+impl OpCode {
+    fn all() -> OpCodeBitArr {
+        let mut all: OpCodeBitArr = OpCodeBitArr::ZERO;
+
+        all[..Self::COUNT].fill(true);
+
+        all
+    }
+}
+
+impl Parse for OpCode {
+    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
+        alt((
+            map(tag("addr"), |_| Self::AddR),
+            map(tag("addi"), |_| Self::AddI),
+            map(tag("mulr"), |_| Self::MulR),
+            map(tag("muli"), |_| Self::MulI),
+            map(tag("banr"), |_| Self::BAnR),
+            map(tag("bani"), |_| Self::BAnI),
+            map(tag("borr"), |_| Self::BOrR),
+            map(tag("bori"), |_| Self::BOrI),
+            map(tag("setr"), |_| Self::SetR),
+            map(tag("seti"), |_| Self::SetI),
+            map(tag("gtir"), |_| Self::GTIR),
+            map(tag("gtri"), |_| Self::GTRI),
+            map(tag("gtrr"), |_| Self::GTRR),
+            map(tag("eqir"), |_| Self::EqIR),
+            map(tag("eqri"), |_| Self::EqRI),
+            map(tag("eqrr"), |_| Self::EqRR),
+        ))(input)
+    }
+}
+
+impl TryFrom<usize> for OpCode {
+    type Error = Error;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        if value >= Self::COUNT {
+            Err(Error::InvalidOpCodeUsize { value })
+        } else {
+            // SAFETY: `value` is valid
+            Ok(unsafe { transmute(value as u8) })
+        }
+    }
+}
+
+impl TryFrom<RegisterRaw> for OpCode {
+    type Error = Error;
+
+    fn try_from(value: RegisterRaw) -> Result<Self, Self::Error> {
+        if value < RegisterRaw::zero() {
+            Err(Error::InvalidOpCodeRegisterRaw { value })
+        } else {
+            (value as usize).try_into()
+        }
+    }
+}
+
+type OpCodeBitArr = BitArr!(for OpCode::COUNT, in u16);
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct Solution;
+#[derive(Clone, Copy)]
+pub struct Instruction<O = OpCode> {
+    pub op_code: O,
+    pub a: RegisterRaw,
+    pub b: RegisterRaw,
+    pub c: RegisterRaw,
+}
+
+impl Instruction<OpCode> {
+    pub fn try_execute<const LEN: usize>(
+        self,
+        registers: &Registers<LEN>,
+    ) -> Result<Registers<LEN>, Error> {
+        let mut result: Registers<LEN> = registers.clone();
+
+        let a: Result<usize, Error> = Registers::<LEN>::try_register_index(self.a);
+        let b: Result<usize, Error> = Registers::<LEN>::try_register_index(self.b);
+
+        result.0[Registers::<LEN>::try_register_index(self.c).unwrap()] = match self.op_code {
+            OpCode::AddR => {
+                let a: RegisterRaw = registers.0[a?];
+                let b: RegisterRaw = registers.0[b?];
+
+                a.checked_add(b)
+                    .ok_or_else(|| Error::AddOverflow { a, b })?
+            }
+            OpCode::AddI => {
+                let a: RegisterRaw = registers.0[a?];
+                let b: RegisterRaw = self.b;
+
+                a.checked_add(b)
+                    .ok_or_else(|| Error::AddOverflow { a, b })?
+            }
+            OpCode::MulR => {
+                let a: RegisterRaw = registers.0[a?];
+                let b: RegisterRaw = registers.0[b?];
+
+                a.checked_mul(b)
+                    .ok_or_else(|| Error::MulOverflow { a, b })?
+            }
+            OpCode::MulI => {
+                let a: RegisterRaw = registers.0[a?];
+                let b: RegisterRaw = self.b;
+
+                a.checked_mul(b)
+                    .ok_or_else(|| Error::MulOverflow { a, b })?
+            }
+            OpCode::BAnR => registers.0[a?] & registers.0[b?],
+            OpCode::BAnI => registers.0[a?] & self.b,
+            OpCode::BOrR => registers.0[a?] | registers.0[b?],
+            OpCode::BOrI => registers.0[a?] | self.b,
+            OpCode::SetR => registers.0[a?],
+            OpCode::SetI => self.a,
+            OpCode::GTIR => (self.a > registers.0[b?]) as RegisterRaw,
+            OpCode::GTRI => (registers.0[a?] > self.b) as RegisterRaw,
+            OpCode::GTRR => (registers.0[a?] > registers.0[b?]) as RegisterRaw,
+            OpCode::EqIR => (self.a == registers.0[b?]) as RegisterRaw,
+            OpCode::EqRI => (registers.0[a?] == self.b) as RegisterRaw,
+            OpCode::EqRR => (registers.0[a?] == registers.0[b?]) as RegisterRaw,
+        };
+
+        Ok(result)
+    }
+}
+
+impl Instruction<RegisterRaw> {
+    fn with_op_code(self, op_code: OpCode) -> Instruction {
+        let Instruction { a, b, c, .. } = self;
+
+        Instruction { op_code, a, b, c }
+    }
+}
+
+impl Parse for Instruction {
+    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
+        map(
+            tuple((
+                OpCode::parse,
+                tag(" "),
+                parse_separated_array(parse_integer, tag(" ")),
+            )),
+            |(op_code, _, [a, b, c])| Self { op_code, a, b, c },
+        )(input)
+    }
+}
+
+impl Parse for Instruction<RegisterRaw> {
+    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
+        map_opt(
+            parse_separated_array(parse_integer, tag(" ")),
+            |[op_code, a, b, c]| {
+                (OpCode::try_from(op_code).is_ok()
+                    && Registers::<DEFAULT_REGISTERS_LEN>::try_register_index(c).is_ok())
+                .then(|| Self { op_code, a, b, c })
+            },
+        )(input)
+    }
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+struct Sample {
+    before: Registers,
+    instruction: Instruction<RegisterRaw>,
+    after: Registers,
+}
+
+impl Sample {
+    fn potential_op_codes(&self) -> OpCodeBitArr {
+        let mut potential_op_codes: OpCodeBitArr = OpCodeBitArr::ZERO;
+
+        for (index, mut is_op_code_potential) in
+            potential_op_codes[..OpCode::COUNT].iter_mut().enumerate()
+        {
+            is_op_code_potential.set(
+                self.instruction
+                    .with_op_code(index.try_into().unwrap())
+                    .try_execute(&self.before)
+                    .map_or_else(|_| false, |after| after == self.after),
+            );
+        }
+
+        potential_op_codes
+    }
+}
+
+impl Parse for Sample {
+    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
+        map(
+            tuple((
+                tag("Before: "),
+                Registers::parse,
+                line_ending,
+                Instruction::parse,
+                line_ending,
+                tag("After:  "),
+                Registers::parse,
+            )),
+            |(_, before, _, instruction, _, _, after)| Self {
+                before,
+                instruction,
+                after,
+            },
+        )(input)
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct OpCodeMapping<O = OpCode>([O; OpCode::COUNT]);
+
+impl OpCodeMapping<Option<OpCode>> {
+    fn set_op_codes(&self) -> OpCodeBitArr {
+        let mut op_code_bit_arr: OpCodeBitArr = OpCodeBitArr::ZERO;
+
+        for op_code in self.0.into_iter().flatten() {
+            op_code_bit_arr.set(op_code as usize, true);
+        }
+
+        op_code_bit_arr
+    }
+
+    fn set_register_values(&self) -> OpCodeBitArr {
+        let mut op_code_bit_arr: OpCodeBitArr = OpCodeBitArr::ZERO;
+
+        for index in self
+            .0
+            .iter()
+            .enumerate()
+            .filter_map(|(index, op_code)| op_code.is_some().then_some(index))
+        {
+            op_code_bit_arr.set(index, true);
+        }
+
+        op_code_bit_arr
+    }
+}
+
+struct OpCodeMappingFinder {
+    potential_op_codes_array: [OpCodeBitArr; OpCode::COUNT],
+    end: Option<OpCodeMapping>,
+}
+
+impl OpCodeMappingFinder {
+    fn try_find_op_code_mapping(samples: &[Sample]) -> Result<OpCodeMapping, Error> {
+        Self::try_from(samples).and_then(|mut finder| {
+            finder
+                .run()
+                .map_or(Err(Error::OpCodeMappingFinderFailed), |_| {
+                    Ok(finder.end.unwrap())
+                })
+        })
+    }
+}
+
+impl DepthFirstSearch for OpCodeMappingFinder {
+    type Vertex = OpCodeMapping<Option<OpCode>>;
+
+    fn start(&self) -> &Self::Vertex {
+        const START: OpCodeMapping<Option<OpCode>> = OpCodeMapping([None; OpCode::COUNT]);
+
+        &START
+    }
+
+    fn is_end(&self, vertex: &Self::Vertex) -> bool {
+        vertex.0.iter().all(Option::is_some)
+    }
+
+    fn path_to(&self, _vertex: &Self::Vertex) -> Vec<Self::Vertex> {
+        // We don't care about the path laid out like this
+        Vec::new()
+    }
+
+    fn neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>) {
+        let clear_op_codes: OpCodeBitArr = !vertex.set_op_codes();
+        let clear_register_values: OpCodeBitArr = !vertex.set_register_values();
+
+        neighbors.clear();
+        neighbors.extend(
+            self.potential_op_codes_array
+                .iter()
+                .enumerate()
+                .filter_map(|(register_value, &potential_op_codes)| {
+                    clear_register_values[register_value]
+                        .then(|| (register_value, potential_op_codes & clear_op_codes))
+                })
+                .min_by_key(|(_, potential_op_codes)| potential_op_codes.count_ones())
+                .into_iter()
+                .flat_map(|(register_value, potential_op_codes)| {
+                    potential_op_codes.into_iter().enumerate().filter_map(
+                        move |(op_code, is_potential)| {
+                            is_potential.then(|| {
+                                let mut neighbor: Self::Vertex = vertex.clone();
+
+                                neighbor.0[register_value] = Some(op_code.try_into().unwrap());
+
+                                neighbor
+                            })
+                        },
+                    )
+                }),
+        );
+    }
+
+    fn update_parent(&mut self, _from: &Self::Vertex, to: &Self::Vertex) {
+        if self.is_end(to) {
+            let mut end: OpCodeMapping =
+                OpCodeMapping([0_usize.try_into().unwrap(); OpCode::COUNT]);
+
+            for (src_op_code, dst_op_code) in to.0.into_iter().zip(end.0.iter_mut()) {
+                *dst_op_code = src_op_code.unwrap();
+            }
+
+            self.end = Some(end);
+        }
+    }
+
+    fn reset(&mut self) {
+        self.end = None;
+    }
+}
+
+impl TryFrom<&[Sample]> for OpCodeMappingFinder {
+    type Error = Error;
+
+    fn try_from(samples: &[Sample]) -> Result<Self, Self::Error> {
+        let mut potential_op_codes_array: [OpCodeBitArr; OpCode::COUNT] =
+            [OpCode::all(); OpCode::COUNT];
+
+        samples
+            .iter()
+            .try_fold((), |_, sample| {
+                let potential_op_codes: &mut OpCodeBitArr =
+                    &mut potential_op_codes_array[sample.instruction.op_code as usize];
+
+                *potential_op_codes = *potential_op_codes & sample.potential_op_codes();
+
+                potential_op_codes.any().then_some(()).ok_or(
+                    Error::OpCodeRegisterHasNoPotentialOpCodes {
+                        op_code: sample.instruction.op_code,
+                    },
+                )
+            })
+            .map(|_| Self {
+                potential_op_codes_array,
+                end: None,
+            })
+    }
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution {
+    samples: Vec<Sample>,
+    instructions: Vec<Instruction<RegisterRaw>>,
+}
+
+impl Solution {
+    const MIN_POTENTIAL_OP_CODES: usize = 3_usize;
+
+    fn sample_count_with_min_potential_op_codes(&self, min_potential_op_codes: usize) -> usize {
+        self.samples
+            .iter()
+            .filter(|sample| sample.potential_op_codes().count_ones() >= min_potential_op_codes)
+            .count()
+    }
+
+    fn try_op_code_mapping(&self) -> Result<OpCodeMapping, Error> {
+        OpCodeMappingFinder::try_find_op_code_mapping(&self.samples)
+    }
+
+    fn try_final_registers(&self) -> Result<Registers, Error> {
+        self.try_op_code_mapping().and_then(|op_code_mapping| {
+            self.instructions
+                .iter()
+                .try_fold(Registers::default(), |registers, instruction| {
+                    instruction
+                        .with_op_code(op_code_mapping.0[instruction.op_code as usize])
+                        .try_execute(&registers)
+                })
+        })
+    }
+
+    fn try_final_register_0(&self) -> Result<RegisterRaw, Error> {
+        self.try_final_registers()
+            .map(|registers| registers.0[0_usize])
+    }
+}
 
 impl Parse for Solution {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
-        todo!()
+        map(
+            separated_pair(
+                separated_list0(tuple((line_ending, line_ending)), Sample::parse),
+                opt(tuple((line_ending, line_ending, line_ending, line_ending))),
+                separated_list0(line_ending, Instruction::parse),
+            ),
+            |(samples, instructions)| Self {
+                samples,
+                instructions,
+            },
+        )(input)
     }
 }
 
 impl RunQuestions for Solution {
-    fn q1_internal(&mut self, args: &QuestionArgs) {
-        todo!();
+    /// Guessing part 2 is gonna be "figure out what's what, run the program, and return what's in
+    /// a register".
+    fn q1_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.sample_count_with_min_potential_op_codes(Self::MIN_POTENTIAL_OP_CODES));
     }
 
-    fn q2_internal(&mut self, args: &QuestionArgs) {
-        todo!();
+    /// Part 2 took way longer than expected for a question description that was quite expected lol.
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.try_final_register_0()).ok();
     }
 }
 
 impl<'i> TryFrom<&'i str> for Solution {
-    type Error = Err<Error<&'i str>>;
+    type Error = Err<NomError<&'i str>>;
 
     fn try_from(input: &'i str) -> Result<Self, Self::Error> {
         Ok(Self::parse(input)?.1)
@@ -113,12 +587,39 @@ impl<'i> TryFrom<&'i str> for Solution {
 mod tests {
     use {super::*, std::sync::OnceLock};
 
-    const SOLUTION_STRS: &'static [&'static str] = &[""];
+    const SOLUTION_STRS: &'static [&'static str] = &["\
+        Before: [3, 2, 1, 1]\n\
+        9 2 1 2\n\
+        After:  [3, 2, 2, 1]\n"];
 
     fn solution(index: usize) -> &'static Solution {
         static ONCE_LOCK: OnceLock<Vec<Solution>> = OnceLock::new();
 
-        &ONCE_LOCK.get_or_init(|| vec![])[index]
+        &ONCE_LOCK.get_or_init(|| {
+            vec![Solution {
+                samples: vec![Sample {
+                    before: Registers([
+                        3 as RegisterRaw,
+                        2 as RegisterRaw,
+                        1 as RegisterRaw,
+                        1 as RegisterRaw,
+                    ]),
+                    instruction: Instruction {
+                        op_code: 9 as RegisterRaw,
+                        a: 2 as RegisterRaw,
+                        b: 1 as RegisterRaw,
+                        c: 2 as RegisterRaw,
+                    },
+                    after: Registers([
+                        3 as RegisterRaw,
+                        2 as RegisterRaw,
+                        2 as RegisterRaw,
+                        1 as RegisterRaw,
+                    ]),
+                }],
+                instructions: Vec::new(),
+            }]
+        })[index]
     }
 
     #[test]
@@ -127,6 +628,33 @@ mod tests {
             assert_eq!(
                 Solution::try_from(solution_str).as_ref(),
                 Ok(solution(index))
+            );
+        }
+    }
+
+    #[test]
+    fn test_potential_op_codes() {
+        for (index, potential_op_codes) in [vec![
+            bitarr_typed![OpCodeBitArr; 0, 1, 1, 0, 0, 0, 0, 0, 0, 1],
+        ]]
+        .into_iter()
+        .enumerate()
+        {
+            for (sample, potential_op_codes) in
+                solution(index).samples.iter().zip(potential_op_codes)
+            {
+                assert_eq!(sample.potential_op_codes(), potential_op_codes);
+            }
+        }
+    }
+
+    #[test]
+    fn test_sample_count_with_min_potential_op_codes() {
+        for (index, sample_count_with_min_potential_op_codes) in [1_usize].into_iter().enumerate() {
+            assert_eq!(
+                solution(index)
+                    .sample_count_with_min_potential_op_codes(Solution::MIN_POTENTIAL_OP_CODES),
+                sample_count_with_min_potential_op_codes
             );
         }
     }

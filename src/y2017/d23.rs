@@ -442,12 +442,11 @@ impl Registers {
                 self.c = c;
                 self.d = c;
                 self.e = c;
-                self.f = is_prime(c as u32) as i32;
+                self.f = is_prime(c as usize) as i32;
                 self.g = 0_i32;
                 self.h = (b..=c)
-                    .filter(|b| (*b - c) % constants.b_30 == 0_i32)
-                    .map(|b| is_composite(b as u32) as i32)
-                    .sum();
+                    .filter(|&b| ((b - c) % constants.b_30 == 0_i32) && is_composite(b as usize))
+                    .count() as i32;
             })
     }
 }
