@@ -625,6 +625,7 @@ impl RunQuestions for Solution {
         }
     }
 
+    /// thank you for the cheese q2, I needed that
     fn q2_internal(&mut self, _args: &QuestionArgs) {
         dbg!(self.rooms_with_min_dist(Self::MIN_DIST));
     }

@@ -8,6 +8,10 @@ use {
         multi::separated_list0, sequence::tuple, Err, IResult,
     },
     num::{NumCast, One},
+    std::{
+        fmt::{Error as FmtError, Write},
+        fs::{create_dir_all, write},
+    },
     y2018::d16::OpCode,
 };
 
@@ -65,7 +69,7 @@ What value is left in register 0 when this new background process halts? */
 
 const REGISTERS_LEN: usize = 6_usize;
 
-type Registers = D16Registers<REGISTERS_LEN>;
+pub type Registers = D16Registers<REGISTERS_LEN>;
 
 struct Constants {
     instruction_20_g_eq_g_mul_b: RegisterRaw,
@@ -75,14 +79,15 @@ struct Constants {
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct Solution {
+pub struct Program {
     instruction_pointer: RegisterRaw,
     instructions: Vec<Instruction>,
 }
 
-impl Solution {
-    const Q1_REGISTER_0: RegisterRaw = 0 as RegisterRaw;
-    const Q2_REGISTER_0: RegisterRaw = 1 as RegisterRaw;
+impl Program {
+    fn as_result_string<T, E: ToString>(result: Result<T, E>) -> Result<T, String> {
+        result.map_err(|e| e.to_string())
+    }
 
     fn try_instruction_pointer_register_index(&self) -> Option<usize> {
         Registers::try_register_index(self.instruction_pointer).ok()
@@ -100,32 +105,161 @@ impl Solution {
         instruction: &Instruction,
         registers: &mut Registers,
     ) -> Option<()> {
-        instruction
-            .try_execute(registers)
-            .ok()
-            .map(|next_registers| {
-                *registers = next_registers;
-
-                registers.0[self.try_instruction_pointer_register_index().unwrap()] +=
-                    RegisterRaw::one();
-            })
+        instruction.try_execute(registers).ok().map(|_| {
+            registers.0[self.try_instruction_pointer_register_index().unwrap()] +=
+                RegisterRaw::one();
+        })
     }
 
-    fn try_run(&self, register_0: RegisterRaw) -> Option<Registers> {
+    pub fn try_run(&self, register_0: RegisterRaw) -> Option<Registers> {
         let mut registers: Registers = Registers::default();
 
         registers.0[0_usize] = register_0;
 
         while let Some(instruction) = self.try_get_instruction(&registers) {
             self.try_execute_instruction(instruction, &mut registers)?;
+            dbg!(registers);
+
+            std::hint::black_box(())
         }
 
         Some(registers)
     }
 
-    fn try_register_0_after_run(&self, register_0: RegisterRaw) -> Option<RegisterRaw> {
+    pub fn try_register_0_after_run(&self, register_0: RegisterRaw) -> Option<RegisterRaw> {
         self.try_run(register_0)
             .map(|registers| registers.0[0_usize])
+    }
+
+    pub fn instruction_pointer(&self) -> RegisterRaw {
+        self.instruction_pointer
+    }
+
+    pub fn instructions(&self) -> &[Instruction] {
+        &self.instructions
+    }
+
+    /// If both `a` and `b` are `None`, retrieving `a` is preferred.
+    pub fn try_get_constant(
+        &self,
+        instruction_index: usize,
+        op_code: OpCode,
+        a: Option<RegisterRaw>,
+        b: Option<RegisterRaw>,
+        c: RegisterRaw,
+    ) -> Option<RegisterRaw> {
+        (a.is_none() || b.is_none())
+            .then(|| a.or(b))
+            .zip(self.instructions.get(instruction_index))
+            .and_then(|(a_or_b, instruction)| {
+                (instruction.op_code == op_code
+                    && (a.is_none() || instruction.a == a_or_b.unwrap())
+                    && (b.is_none() || instruction.b == a_or_b.unwrap())
+                    && instruction.c == c)
+                    .then(|| {
+                        if a.is_none() {
+                            instruction.a
+                        } else {
+                            instruction.b
+                        }
+                    })
+            })
+    }
+
+    pub fn try_print_simplified_to_file(&self, module_path: &str) -> Result<(), String> {
+        let mut register_names: Vec<char> = vec!['d', 'e', 'f', 'g', 'h'];
+
+        register_names.insert(
+            self.try_instruction_pointer_register_index()
+                .ok_or_else(|| {
+                    format!(
+                        "{} was not a valid register index",
+                        self.instruction_pointer
+                    )
+                })?,
+            'i',
+        );
+
+        let mut simplified: String = String::new();
+
+        writeln!(&mut simplified, "// {register_names:?}").map_err(|e| e.to_string())?;
+
+        let mut instruction_string: String = String::new();
+
+        let max_instruction_string_len: usize =
+            Self::as_result_string::<usize, FmtError>(self.instructions.iter().try_fold(
+                0_usize,
+                |max_instruction_string_len, instruction| {
+                    instruction_string.clear();
+
+                    instruction.print_simplified(&register_names, &mut instruction_string)?;
+
+                    Ok(max_instruction_string_len.max(instruction_string.len()))
+                },
+            ))?;
+        let instruction_padded_len: usize =
+            ((max_instruction_string_len / 4_usize) + 1_usize) * 4_usize;
+
+        for (index, instruction) in self.instructions.iter().enumerate() {
+            instruction_string.clear();
+
+            Self::as_result_string(
+                instruction.print_simplified(&register_names, &mut instruction_string),
+            )?;
+            Self::as_result_string(writeln!(
+                &mut simplified,
+                "{0: <1$}// {2:>02}: {3} {4} {5} {6}",
+                instruction_string,
+                instruction_padded_len,
+                index,
+                instruction.op_code.tag_str(),
+                instruction.a,
+                instruction.b,
+                instruction.c,
+            ))?;
+        }
+
+        println!("{simplified}");
+
+        let args: Args = Args::parse(module_path).map_err(|e| format!("{e:?}"))?.1;
+        let path: String = format!("output/y{}/d{}_simplified.txt", args.year, args.day);
+
+        create_dir_all(&path[..path.rfind('/').unwrap()]).map_err(|e| e.to_string())?;
+
+        write(path, simplified.as_bytes()).map_err(|e| e.to_string())
+    }
+}
+
+impl Parse for Program {
+    fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
+        map(
+            tuple((
+                tag("#ip "),
+                parse_integer,
+                line_ending,
+                separated_list0(line_ending, Instruction::parse),
+            )),
+            |(_, instruction_pointer, _, instructions)| Self {
+                instruction_pointer,
+                instructions,
+            },
+        )(input)
+    }
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Solution(Program);
+
+impl Solution {
+    const Q1_REGISTER_0: RegisterRaw = 0 as RegisterRaw;
+    const Q2_REGISTER_0: RegisterRaw = 1 as RegisterRaw;
+
+    fn try_run(&self, register_0: RegisterRaw) -> Option<Registers> {
+        self.0.try_run(register_0)
+    }
+
+    fn try_register_0_after_run(&self, register_0: RegisterRaw) -> Option<RegisterRaw> {
+        self.0.try_register_0_after_run(register_0)
     }
 
     fn try_get_constant(
@@ -135,12 +269,8 @@ impl Solution {
         a: RegisterRaw,
         c: RegisterRaw,
     ) -> Option<RegisterRaw> {
-        self.instructions
-            .get(instruction_index)
-            .and_then(|instruction| {
-                (instruction.op_code == op_code && instruction.a == a && instruction.c == c)
-                    .then_some(instruction.b)
-            })
+        self.0
+            .try_get_constant(instruction_index, op_code, Some(a), None, c)
     }
 
     fn try_get_constants(&self) -> Option<Constants> {
@@ -150,7 +280,7 @@ impl Solution {
 
         // This function could be more rigorous, but doing so would expose more details about the
         // user-specific input than I'm comfortable sharing.
-        (self.instructions.len() == 36_usize && self.instruction_pointer == I)
+        (self.0.instructions.len() == 36_usize && self.0.instruction_pointer == I)
             .then_some(())
             .and_then(|_| {
                 self.try_get_constant(20_usize, OpCode::MulI, G, G)
@@ -242,18 +372,7 @@ impl Solution {
 
 impl Parse for Solution {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
-        map(
-            tuple((
-                tag("#ip "),
-                parse_integer,
-                line_ending,
-                separated_list0(line_ending, Instruction::parse),
-            )),
-            |(_, instruction_pointer, _, instructions)| Self {
-                instruction_pointer,
-                instructions,
-            },
-        )(input)
+        map(Program::parse, Self)(input)
     }
 }
 
@@ -263,6 +382,10 @@ impl RunQuestions for Solution {
         if args.verbose {
             dbg!(self.try_run(Self::Q1_REGISTER_0));
             dbg!(self.try_run_simplified(Self::Q1_REGISTER_0));
+
+            if let Err(e) = self.0.try_print_simplified_to_file(module_path!()) {
+                eprintln!("{e}");
+            }
         } else {
             dbg!(self.try_register_0_after_run(Self::Q1_REGISTER_0));
         }
@@ -304,7 +427,7 @@ mod tests {
         static ONCE_LOCK: OnceLock<Vec<Solution>> = OnceLock::new();
 
         &ONCE_LOCK.get_or_init(|| {
-            vec![Solution {
+            vec![Solution(Program {
                 instruction_pointer: 0 as RegisterRaw,
                 instructions: vec![
                     Instruction {
@@ -350,7 +473,7 @@ mod tests {
                         c: 5 as RegisterRaw,
                     },
                 ],
-            }]
+            })]
         })[index]
     }
 
@@ -409,8 +532,9 @@ mod tests {
 
             for registers in registers_list {
                 solution
+                    .0
                     .try_execute_instruction(
-                        solution.try_get_instruction(&curr_registers).unwrap(),
+                        solution.0.try_get_instruction(&curr_registers).unwrap(),
                         &mut curr_registers,
                     )
                     .unwrap();

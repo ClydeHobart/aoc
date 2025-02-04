@@ -2,18 +2,20 @@ use {
     crate::*,
     bitvec::prelude::*,
     nom::{
-        branch::alt,
         bytes::complete::tag,
         character::complete::line_ending,
         combinator::{map, map_opt, opt},
-        error::Error as NomError,
+        error::{Error as NomError, ErrorKind},
         multi::separated_list0,
         sequence::{delimited, separated_pair, tuple},
         Err, IResult,
     },
     num::{NumCast, Zero},
-    std::mem::transmute,
-    strum::EnumCount,
+    std::{
+        fmt::{Display, Error as FmtError, Write},
+        mem::transmute,
+    },
+    strum::{EnumCount, EnumIter, IntoEnumIterator},
 };
 
 /* --- Day 16: Chronal Classification ---
@@ -105,7 +107,7 @@ pub enum Error {
     OpCodeMappingFinderFailed,
 }
 
-pub type RegisterRaw = i32;
+pub type RegisterRaw = i64;
 
 const DEFAULT_REGISTERS_LEN: usize = 4_usize;
 
@@ -138,7 +140,7 @@ impl<const LEN: usize> Parse for Registers<LEN> {
 
 // These are allowed because they're constructed in `TryFrom::try_from`.
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, EnumCount, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, EnumCount, EnumIter, Eq, Hash, PartialEq)]
 #[repr(u8)]
 pub enum OpCode {
     AddR,
@@ -167,28 +169,79 @@ impl OpCode {
 
         all
     }
+
+    pub fn a_is_register(self) -> bool {
+        !matches!(self, Self::SetI | Self::GTIR | Self::EqIR)
+    }
+
+    pub fn b_is_register(self) -> bool {
+        matches!(
+            self,
+            Self::AddR
+                | Self::MulR
+                | Self::BAnR
+                | Self::BOrR
+                | Self::GTIR
+                | Self::GTRR
+                | Self::EqIR
+                | Self::EqRR
+        )
+    }
+
+    pub fn is_set(self) -> bool {
+        matches!(self, Self::SetR | Self::SetI)
+    }
+
+    pub fn is_comparison(self) -> bool {
+        matches!(
+            self,
+            Self::GTIR | Self::GTRI | Self::GTRR | Self::EqIR | Self::EqRI | Self::EqRR
+        )
+    }
+
+    pub fn try_op_str(self) -> Option<&'static str> {
+        match self {
+            Self::AddR | Self::AddI => Some("+"),
+            Self::MulR | Self::MulI => Some("*"),
+            Self::BAnR | Self::BAnI => Some("&"),
+            Self::BOrR | Self::BOrI => Some("|"),
+            Self::GTIR | Self::GTRI | Self::GTRR => Some(">"),
+            Self::EqIR | Self::EqRI | Self::EqRR => Some("=="),
+            _ => None,
+        }
+    }
+
+    pub fn tag_str(self) -> &'static str {
+        match self {
+            Self::AddR => "addr",
+            Self::AddI => "addi",
+            Self::MulR => "mulr",
+            Self::MulI => "muli",
+            Self::BAnR => "banr",
+            Self::BAnI => "bani",
+            Self::BOrR => "borr",
+            Self::BOrI => "bori",
+            Self::SetR => "setr",
+            Self::SetI => "seti",
+            Self::GTIR => "gtir",
+            Self::GTRI => "gtri",
+            Self::GTRR => "gtrr",
+            Self::EqIR => "eqir",
+            Self::EqRI => "eqri",
+            Self::EqRR => "eqrr",
+        }
+    }
 }
 
 impl Parse for OpCode {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
-        alt((
-            map(tag("addr"), |_| Self::AddR),
-            map(tag("addi"), |_| Self::AddI),
-            map(tag("mulr"), |_| Self::MulR),
-            map(tag("muli"), |_| Self::MulI),
-            map(tag("banr"), |_| Self::BAnR),
-            map(tag("bani"), |_| Self::BAnI),
-            map(tag("borr"), |_| Self::BOrR),
-            map(tag("bori"), |_| Self::BOrI),
-            map(tag("setr"), |_| Self::SetR),
-            map(tag("seti"), |_| Self::SetI),
-            map(tag("gtir"), |_| Self::GTIR),
-            map(tag("gtri"), |_| Self::GTRI),
-            map(tag("gtrr"), |_| Self::GTRR),
-            map(tag("eqir"), |_| Self::EqIR),
-            map(tag("eqri"), |_| Self::EqRI),
-            map(tag("eqrr"), |_| Self::EqRR),
-        ))(input)
+        Self::iter()
+            .find_map(|op_code| {
+                tag::<&str, &str, NomError<&str>>(op_code.tag_str())(input)
+                    .ok()
+                    .map(|(remaining, _)| (remaining, op_code))
+            })
+            .ok_or_else(|| NomErr::Error(NomError::new(input, ErrorKind::Alt)))
     }
 }
 
@@ -219,6 +272,14 @@ impl TryFrom<RegisterRaw> for OpCode {
 
 type OpCodeBitArr = BitArr!(for OpCode::COUNT, in u16);
 
+#[derive(Clone, Copy)]
+pub enum StatementType {
+    CEqA,
+    COpEqA,
+    COpEqB,
+    CEqAOpB,
+}
+
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Clone, Copy)]
 pub struct Instruction<O = OpCode> {
@@ -231,14 +292,11 @@ pub struct Instruction<O = OpCode> {
 impl Instruction<OpCode> {
     pub fn try_execute<const LEN: usize>(
         self,
-        registers: &Registers<LEN>,
-    ) -> Result<Registers<LEN>, Error> {
-        let mut result: Registers<LEN> = registers.clone();
-
+        registers: &mut Registers<LEN>,
+    ) -> Result<(), Error> {
         let a: Result<usize, Error> = Registers::<LEN>::try_register_index(self.a);
         let b: Result<usize, Error> = Registers::<LEN>::try_register_index(self.b);
-
-        result.0[Registers::<LEN>::try_register_index(self.c).unwrap()] = match self.op_code {
+        let c: RegisterRaw = match self.op_code {
             OpCode::AddR => {
                 let a: RegisterRaw = registers.0[a?];
                 let b: RegisterRaw = registers.0[b?];
@@ -281,7 +339,117 @@ impl Instruction<OpCode> {
             OpCode::EqRR => (registers.0[a?] == registers.0[b?]) as RegisterRaw,
         };
 
-        Ok(result)
+        registers.0[Registers::<LEN>::try_register_index(self.c).unwrap()] = c;
+
+        Ok(())
+    }
+
+    pub fn statement_type(&self) -> StatementType {
+        if self.op_code.is_set() {
+            StatementType::CEqA
+        } else if self.op_code.is_comparison() {
+            StatementType::CEqAOpB
+        } else if self.a == self.c {
+            StatementType::COpEqB
+        } else if self.b == self.c {
+            StatementType::COpEqA
+        } else {
+            StatementType::CEqAOpB
+        }
+    }
+
+    fn a(&self) -> &RegisterRaw {
+        &self.a
+    }
+
+    fn b(&self) -> &RegisterRaw {
+        &self.b
+    }
+
+    fn display_component<'d, F: Fn(OpCode) -> bool, G: Fn(&Self) -> &RegisterRaw>(
+        &'d self,
+        register_names: &'d [char],
+        register_name: &'d mut char,
+        component_is_register: F,
+        access_component: G,
+    ) -> &'d dyn Display {
+        if component_is_register(self.op_code) {
+            *register_name = register_names[*access_component(self) as usize];
+
+            register_name as &dyn Display
+        } else {
+            access_component(self) as &dyn Display
+        }
+    }
+
+    fn display_a<'d>(
+        &'d self,
+        register_names: &'d [char],
+        register_name: &'d mut char,
+    ) -> &'d dyn Display {
+        self.display_component(
+            register_names,
+            register_name,
+            OpCode::a_is_register,
+            Self::a,
+        )
+    }
+
+    fn display_b<'d>(
+        &'d self,
+        register_names: &'d [char],
+        register_name: &'d mut char,
+    ) -> &'d dyn Display {
+        self.display_component(
+            register_names,
+            register_name,
+            OpCode::b_is_register,
+            Self::b,
+        )
+    }
+
+    fn display_c(&self, register_names: &[char]) -> char {
+        register_names[self.c as usize]
+    }
+
+    pub fn print_simplified(
+        &self,
+        register_names: &[char],
+        string: &mut String,
+    ) -> Result<(), FmtError> {
+        let mut register_a_name: char = ' ';
+        let mut register_b_name: char = ' ';
+
+        match self.statement_type() {
+            StatementType::CEqA => write!(
+                string,
+                "{} = {};",
+                self.display_c(register_names),
+                self.display_a(register_names, &mut register_a_name)
+            ),
+            StatementType::COpEqA => write!(
+                string,
+                "{} {}= {};",
+                self.display_c(register_names),
+                self.op_code.try_op_str().unwrap(),
+                self.display_a(register_names, &mut register_a_name)
+            ),
+            StatementType::COpEqB => write!(
+                string,
+                "{} {}= {};",
+                self.display_c(register_names),
+                self.op_code.try_op_str().unwrap(),
+                self.display_b(register_names, &mut register_b_name)
+            ),
+            StatementType::CEqAOpB => write!(
+                string,
+                "{} = {} {} {};",
+                self.display_c(register_names),
+                self.display_a(register_names, &mut register_a_name),
+                self.op_code.try_op_str().unwrap(),
+                self.display_b(register_names, &mut register_b_name)
+            ),
+        }
     }
 }
 
@@ -333,11 +501,13 @@ impl Sample {
         for (index, mut is_op_code_potential) in
             potential_op_codes[..OpCode::COUNT].iter_mut().enumerate()
         {
+            let mut before: Registers = self.before.clone();
+
             is_op_code_potential.set(
                 self.instruction
                     .with_op_code(index.try_into().unwrap())
-                    .try_execute(&self.before)
-                    .map_or_else(|_| false, |after| after == self.after),
+                    .try_execute(&mut before)
+                    .map_or_else(|_| false, |_| before == self.after),
             );
         }
 
@@ -529,15 +699,17 @@ impl Solution {
     }
 
     fn try_final_registers(&self) -> Result<Registers, Error> {
-        self.try_op_code_mapping().and_then(|op_code_mapping| {
-            self.instructions
-                .iter()
-                .try_fold(Registers::default(), |registers, instruction| {
+        let mut registers: Registers = Registers::default();
+
+        self.try_op_code_mapping()
+            .and_then(|op_code_mapping| {
+                self.instructions.iter().try_fold((), |_, instruction| {
                     instruction
                         .with_op_code(op_code_mapping.0[instruction.op_code as usize])
-                        .try_execute(&registers)
+                        .try_execute(&mut registers)
                 })
-        })
+            })
+            .map(|_| registers)
     }
 
     fn try_final_register_0(&self) -> Result<RegisterRaw, Error> {

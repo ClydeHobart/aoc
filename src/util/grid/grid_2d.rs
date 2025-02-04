@@ -426,6 +426,16 @@ pub fn grid_2d_try_index_from_pos_and_dimensions(pos: IVec2, dimensions: IVec2) 
         .then(|| pos.y as usize * dimensions.x as usize + pos.x as usize)
 }
 
+pub fn grid_2d_iter_positions(Range { start, end }: Range<IVec2>) -> impl Iterator<Item = IVec2> {
+    CellIter2D::try_from(start..IVec2::new(start.x, end.y))
+        .unwrap()
+        .flat_map(move |pos| CellIter2D::try_from(pos..IVec2::new(end.x, pos.y)).unwrap())
+}
+
+pub fn grid_2d_iter_positions_from_dimensions(dimensions: IVec2) -> impl Iterator<Item = IVec2> {
+    grid_2d_iter_positions(IVec2::ZERO..dimensions)
+}
+
 pub struct Grid2D<T> {
     cells: Vec<T>,
 
@@ -527,13 +537,7 @@ impl<T> Grid2D<T> {
     }
 
     pub fn iter_positions(&self) -> impl Iterator<Item = IVec2> {
-        let dimensions: IVec2 = self.dimensions;
-
-        CellIter2D::try_from(IVec2::ZERO..IVec2::new(0_i32, dimensions.y))
-            .unwrap()
-            .flat_map(move |pos| {
-                CellIter2D::try_from(pos..IVec2::new(dimensions.x, pos.y)).unwrap()
-            })
+        grid_2d_iter_positions_from_dimensions(self.dimensions)
     }
 
     pub fn iter_filtered_positions<'a, P: Fn(&T) -> bool + 'a>(
@@ -604,29 +608,29 @@ impl<T> Grid2D<T> {
         }
     }
 
-    pub fn double_dimensions(&mut self, value: T)
+    pub fn double_rows(&mut self, value: T)
+    where
+        T: Clone,
+    {
+        self.resize_rows(self.dimensions.y as usize * 2_usize, value);
+    }
+
+    pub fn double_cols(&mut self, value: T)
     where
         T: Clone,
     {
         let row_len: usize = self.dimensions.x as usize;
-        let new_dimensions: IVec2 = 2_i32 * self.dimensions;
+        let new_dimensions: IVec2 = self.dimensions * IVec2::new(2_i32, 1_i32);
 
-        // This is just used for `index_from_pos`.
-        let new_self: Self = Self {
-            cells: Vec::new(),
-            dimensions: new_dimensions,
-        };
-
-        self.cells.resize(
-            new_dimensions.x as usize * new_dimensions.y as usize,
-            value.clone(),
-        );
+        self.cells
+            .resize(new_dimensions.element_product() as usize, value.clone());
 
         // Move the old rows into their new spots.
         for y in (1_i32..self.dimensions.y).rev() {
             let row_pos: IVec2 = y * IVec2::Y;
             let old_row_start: usize = self.index_from_pos(row_pos);
-            let new_row_start: usize = new_self.index_from_pos(row_pos);
+            let new_row_start: usize =
+                grid_2d_try_index_from_pos_and_dimensions(row_pos, new_dimensions).unwrap();
             let (old_row_slice, new_row_slice): (&mut [T], &mut [T]) =
                 self.cells.split_at_mut(new_row_start);
 
@@ -634,14 +638,29 @@ impl<T> Grid2D<T> {
                 .clone_from_slice(&old_row_slice[old_row_start..old_row_start + row_len]);
         }
 
-        // Initialize the new columns within the bounds of the old rows.
+        // Initialize the new columns.
         for y in 0_i32..self.dimensions.y {
-            let new_row_start: usize = new_self.index_from_pos(IVec2::new(self.dimensions.x, y));
+            let new_row_start: usize = grid_2d_try_index_from_pos_and_dimensions(
+                IVec2::new(self.dimensions.x, y),
+                new_dimensions,
+            )
+            .unwrap();
 
             self.cells[new_row_start..new_row_start + row_len].fill(value.clone());
         }
 
         self.dimensions = new_dimensions;
+    }
+
+    pub fn double_dimensions(&mut self, value: T)
+    where
+        T: Clone,
+    {
+        self.cells.reserve_exact(
+            (2_i32 * self.dimensions).element_product() as usize - self.cells().len(),
+        );
+        self.double_cols(value.clone());
+        self.double_rows(value);
     }
 
     pub fn reserve_rows(&mut self, additional_rows: usize) {

@@ -1,14 +1,13 @@
 use {
-    crate::*,
-    nom::{
-        bytes::complete::tag,
-        character::complete::line_ending,
-        combinator::{map, map_res, opt},
-        error::Error,
-        multi::many0,
-        sequence::{preceded, terminated, tuple},
-        Err, IResult,
+    crate::{
+        y2018::{
+            d16::{OpCode, RegisterRaw},
+            d19::Program,
+        },
+        *,
     },
+    nom::{combinator::map, error::Error, Err, IResult},
+    std::collections::HashSet,
 };
 
 /* --- Day 21: Chronal Conversion ---
@@ -35,22 +34,137 @@ Because time travel is a dangerous activity, the activation system begins with a
 
 What is the lowest non-negative integer value for register 0 that causes the program to halt after executing the fewest instructions? (Executing the same instruction multiple times counts as multiple instructions executed.) */
 
+struct Constants {
+    in_0_h_eq_a: RegisterRaw,
+    in_1_h_eq_h_and_b: RegisterRaw,
+    in_2_h_eq_h_eq_b: RegisterRaw,
+    in_7_h_eq_a: RegisterRaw,
+    in_11_h_eq_h_mul_b: RegisterRaw,
+}
+
+impl Constants {
+    const IN_6_G_EQ_H_OR_B: RegisterRaw = 0x10000 as RegisterRaw;
+    const IN_8_F_EQ_G_AND_B: RegisterRaw = 0xFF as RegisterRaw;
+    const IN_10_H_EQ_H_AND_B: RegisterRaw = 0xFFFFFF as RegisterRaw;
+    const IN_12_H_EQ_H_AND_B: RegisterRaw = 0xFFFFFF as RegisterRaw;
+    const IN_13_F_EQ_A_GT_G: RegisterRaw = 0x100 as RegisterRaw;
+    const IN_19_E_EQ_E_MUL_B: RegisterRaw = 0x100 as RegisterRaw;
+}
+
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct Solution;
+pub struct Solution(Program);
+
+impl Solution {
+    fn try_constants(&self) -> Option<Constants> {
+        const H: RegisterRaw = 5 as RegisterRaw;
+
+        Some(Constants {
+            in_0_h_eq_a: self
+                .0
+                .try_get_constant(0_usize, OpCode::SetI, None, None, H)?,
+            in_1_h_eq_h_and_b: self
+                .0
+                .try_get_constant(1_usize, OpCode::BAnI, Some(H), None, H)?,
+            in_2_h_eq_h_eq_b: self
+                .0
+                .try_get_constant(2_usize, OpCode::EqRI, Some(H), None, H)?,
+            in_7_h_eq_a: self
+                .0
+                .try_get_constant(7_usize, OpCode::SetI, None, None, H)?,
+            in_11_h_eq_h_mul_b: self.0.try_get_constant(
+                11_usize,
+                OpCode::MulI,
+                Some(H),
+                None,
+                H,
+            )?,
+        })
+    }
+
+    fn map_h(constants: &Constants, h: RegisterRaw) -> RegisterRaw {
+        let mut g: RegisterRaw = h | Constants::IN_6_G_EQ_H_OR_B;
+        let mut h: RegisterRaw = constants.in_7_h_eq_a;
+
+        while {
+            h = (((h + (g & Constants::IN_8_F_EQ_G_AND_B)) & Constants::IN_10_H_EQ_H_AND_B)
+                * constants.in_11_h_eq_h_mul_b)
+                & Constants::IN_12_H_EQ_H_AND_B;
+
+            Constants::IN_13_F_EQ_A_GT_G <= g
+        } {
+            g /= Constants::IN_19_E_EQ_E_MUL_B;
+        }
+
+        h
+    }
+
+    fn filter_constants(constants: &Constants) -> bool {
+        (constants.in_0_h_eq_a & constants.in_1_h_eq_h_and_b) == constants.in_2_h_eq_h_eq_b
+    }
+
+    fn try_shortest_halt(&self) -> Option<RegisterRaw> {
+        self.try_constants()
+            .filter(Self::filter_constants)
+            .map(|constants| Self::map_h(&constants, 0))
+    }
+
+    fn try_longest_halt(&self) -> Option<RegisterRaw> {
+        self.try_constants()
+            .filter(Self::filter_constants)
+            .map(|constants| {
+                let mut prev_hs: HashSet<RegisterRaw> = HashSet::new();
+                let mut prev_h: Option<RegisterRaw> = None;
+                let mut h: RegisterRaw = 0;
+
+                while prev_hs.insert(h) {
+                    prev_h = Some(h);
+                    h = Self::map_h(&constants, h);
+                }
+
+                prev_h.unwrap()
+            })
+    }
+}
 
 impl Parse for Solution {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self> {
-        todo!()
+        map(Program::parse, Self)(input)
     }
 }
 
 impl RunQuestions for Solution {
+    /// Took forever to solve this because I mistranslated 65536 as 0x100 instead of 0x10000. The
+    /// logic this runs is effectively
+    /// ```notrust
+    /// while {
+    ///     g = h | Constants::IN_6_G_EQ_H_OR_B;
+    ///     h = constants.in_7_h_eq_a;
+    ///     while {
+    ///         h = (((h + (g & Constants::IN_8_F_EQ_G_AND_B))
+    ///             & Constants::IN_10_H_EQ_H_AND_B)
+    ///             * constants.in_11_h_eq_h_mul_b)
+    ///             & Constants::IN_12_H_EQ_H_AND_B;
+    ///         Constants::IN_13_F_EQ_A_GT_G <= g
+    ///     } {
+    ///         g /= Constants::IN_19_E_EQ_E_MUL_B;
+    ///     }
+    ///     h != d
+    /// } {}
+    /// ```
     fn q1_internal(&mut self, args: &QuestionArgs) {
-        todo!();
+        if args.verbose {
+            if let Err(e) = self.0.try_print_simplified_to_file(module_path!()) {
+                eprintln!("{e}");
+            }
+        }
+
+        dbg!(self.try_shortest_halt());
     }
 
-    fn q2_internal(&mut self, args: &QuestionArgs) {
-        todo!();
+    /// I think this one's incorrect: in theory, having a register `d` of 0 would take even longer,
+    /// since `h` is first compared with `d` after operations are performed on it.
+    fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.try_longest_halt());
     }
 }
 
@@ -86,8 +200,8 @@ mod tests {
 
     #[test]
     fn test_input() {
-        // let args: Args = Args::parse(module_path!()).unwrap().1;
+        let args: Args = Args::parse(module_path!()).unwrap().1;
 
-        // Solution::both(&args);
+        Solution::both(&args);
     }
 }
