@@ -10,7 +10,7 @@ use {
         sequence::separated_pair,
         Err, IResult,
     },
-    std::ops::{BitAnd, BitAndAssign},
+    std::{cmp::Ordering, ops::BitAnd},
 };
 
 /* --- Day 23: LAN Party ---
@@ -123,6 +123,23 @@ struct Set<I>([I; 3_usize]);
 type ComputerIdSet = Set<ComputerId>;
 type ComputerIndexSet = Set<ComputerIndex>;
 
+#[derive(Clone, Default)]
+pub struct LanPartyAdditionalCliqueState;
+
+impl AdditionalCliqueStateTrait for LanPartyAdditionalCliqueState {
+    fn is_valid(&self) -> bool {
+        true
+    }
+
+    fn maximal_cmp(&self, _other: &Self) -> Ordering {
+        Ordering::Equal
+    }
+
+    fn maximal_cmp_always_returns_equal(&self) -> bool {
+        true
+    }
+}
+
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct Solution {
     computers: ComputerTable,
@@ -221,79 +238,9 @@ impl Solution {
         self.iter_possible_chief_historian_id_sets().count()
     }
 
-    fn maximum_clique_internanl(
-        &self,
-        clique: &mut ComputersBitArray,
-        clique_cardinality: usize,
-        neighbors: &ComputersBitArray,
-        computer_index_offset: usize,
-        maximum_clique: &mut ComputersBitArray,
-        maximum_clique_cardinality: &mut usize,
-    ) {
-        let clique_cardinality: usize = clique_cardinality + 1_usize;
-
-        for mut neighbor_computer_index in neighbors[computer_index_offset..].iter_ones() {
-            neighbor_computer_index += computer_index_offset;
-
-            clique.set(neighbor_computer_index, true);
-
-            if clique_cardinality > *maximum_clique_cardinality {
-                *maximum_clique = *clique;
-                *maximum_clique_cardinality = clique_cardinality;
-            }
-
-            let mut neighbors: ComputersBitArray = neighbors.clone();
-
-            neighbors.bitand_assign(
-                &self.computers.as_slice()[neighbor_computer_index]
-                    .data
-                    .connections,
-            );
-
-            let computer_index_offset: usize = neighbor_computer_index + 1_usize;
-
-            if clique_cardinality + neighbors[computer_index_offset..].count_ones()
-                > *maximum_clique_cardinality
-            {
-                self.maximum_clique_internanl(
-                    clique,
-                    clique_cardinality,
-                    &neighbors,
-                    computer_index_offset,
-                    maximum_clique,
-                    maximum_clique_cardinality,
-                );
-            }
-
-            clique.set(neighbor_computer_index, false);
-        }
-    }
-
-    fn maximum_clique(&self) -> ComputersBitArray {
-        let mut clique: ComputersBitArray = ComputersBitArray::ZERO;
-        let clique_cardinality: usize = 0_usize;
-        let mut neighbors: ComputersBitArray = ComputersBitArray::ZERO;
-
-        neighbors[..self.computers.as_slice().len()].fill(true);
-
-        let computer_index_offset: usize = 0_usize;
-        let mut maximum_clique: ComputersBitArray = ComputersBitArray::ZERO;
-        let mut maximum_clique_cardinality: usize = 0_usize;
-
-        self.maximum_clique_internanl(
-            &mut clique,
-            clique_cardinality,
-            &neighbors,
-            computer_index_offset,
-            &mut maximum_clique,
-            &mut maximum_clique_cardinality,
-        );
-
-        maximum_clique
-    }
-
     fn lan_party_password(&self) -> String {
-        self.maximum_clique()
+        self.run()
+            .clique
             .iter_ones()
             .enumerate()
             .flat_map(|(clique_index, computer_index)| {
@@ -303,6 +250,27 @@ impl Solution {
                 ]
             })
             .collect()
+    }
+}
+
+impl MaximumClique for Solution {
+    type BitArray = ComputersBitArray;
+
+    type AdditionalCliqueState = LanPartyAdditionalCliqueState;
+
+    fn vertex_count(&self) -> usize {
+        self.computers.as_slice().len()
+    }
+
+    fn integrate_vertex(
+        &self,
+        _additional_clique_state: &mut Self::AdditionalCliqueState,
+        _vertex_index: usize,
+    ) {
+    }
+
+    fn get_neighbors(&self, vertex_index: usize) -> &Self::BitArray {
+        &self.computers.as_slice()[vertex_index].data.connections
     }
 }
 

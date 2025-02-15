@@ -1,5 +1,6 @@
 use {
     super::CellIter2D,
+    bitvec::prelude::*,
     glam::IVec2,
     std::{
         cmp::Ordering,
@@ -7,7 +8,7 @@ use {
         hash::Hash,
         iter::from_fn,
         mem::take,
-        ops::Add,
+        ops::{Add, BitAndAssign, Deref, DerefMut},
     },
 };
 
@@ -620,5 +621,156 @@ pub trait JumpFloodingAlgorithm {
         self.run_iterations(
             jump_flooding_algoritm_iter_k(self.n()).chain(jump_flooding_algoritm_iter_k(self.n())),
         )
+    }
+}
+
+pub trait AdditionalCliqueStateTrait: Clone + Default {
+    /// Returns whether or not this is still a valid clique.
+    fn is_valid(&self) -> bool;
+
+    /// Returns `Greater` if `self` is more "maximal", etc.
+    fn maximal_cmp(&self, other: &Self) -> Ordering;
+
+    /// Returns whether `maximal_cmp` always returns `Equal`.
+    fn maximal_cmp_always_returns_equal(&self) -> bool;
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Default)]
+pub struct CliqueState<BA, A> {
+    pub clique: BA,
+    pub clique_cardinality: usize,
+    pub additional_clique_state: A,
+}
+
+#[derive(Default)]
+struct StackState<BA, A> {
+    neighbors: BA,
+    vertex_index: usize,
+    additional_clique_state: A,
+}
+
+impl<BS: BitStore, BO: BitOrder, BA: Deref<Target = BitSlice<BS, BO>>, A> StackState<BA, A> {
+    fn next_neighbor_vertex_index(&self) -> usize {
+        self.vertex_index + self.neighbors[self.vertex_index..].leading_zeros()
+    }
+
+    fn neighbor_cardinality(&self) -> usize {
+        self.neighbors[self.vertex_index..].count_ones()
+    }
+}
+
+pub trait MaximumClique<BS = usize, BO = Lsb0>
+where
+    BS: BitStore,
+    BO: BitOrder,
+{
+    type BitArray: for<'b> BitAndAssign<&'b Self::BitArray>
+        + Clone
+        + Default
+        + Deref<Target = BitSlice<BS, BO>>
+        + DerefMut;
+    type AdditionalCliqueState: AdditionalCliqueStateTrait;
+
+    fn vertex_count(&self) -> usize;
+    fn integrate_vertex(
+        &self,
+        additional_clique_state: &mut Self::AdditionalCliqueState,
+        vertex_index: usize,
+    );
+    fn get_neighbors(&self, vertex_index: usize) -> &Self::BitArray;
+    fn run(&self) -> CliqueState<Self::BitArray, Self::AdditionalCliqueState> {
+        let vertex_count: usize = self.vertex_count();
+        let mut maximal_clique_state: CliqueState<Self::BitArray, Self::AdditionalCliqueState> =
+            CliqueState::default();
+        let mut clique: Self::BitArray = Default::default();
+        let mut clique_cardinality: usize = 0_usize;
+        let mut neighbors: Self::BitArray = Default::default();
+
+        neighbors[..vertex_count].fill(true);
+
+        let mut stack: Vec<StackState<Self::BitArray, Self::AdditionalCliqueState>> =
+            vec![StackState {
+                neighbors,
+                ..Default::default()
+            }];
+
+        while let Some(stack_state) = stack.last_mut() {
+            let vertex_index: usize = stack_state.vertex_index;
+
+            if vertex_index >= vertex_count {
+                stack.pop();
+            } else if clique[vertex_index] {
+                clique.set(vertex_index, false);
+                clique_cardinality -= 1_usize;
+                stack_state.vertex_index += 1_usize;
+                stack_state.vertex_index = stack_state.next_neighbor_vertex_index();
+            } else {
+                let next_neighbor_vertex_index: usize = stack_state.next_neighbor_vertex_index();
+
+                if next_neighbor_vertex_index > vertex_index {
+                    stack_state.vertex_index = next_neighbor_vertex_index;
+                } else {
+                    clique.set(vertex_index, true);
+                    clique_cardinality += 1_usize;
+
+                    let mut additional_clique_state: Self::AdditionalCliqueState =
+                        stack_state.additional_clique_state.clone();
+
+                    self.integrate_vertex(&mut additional_clique_state, vertex_index);
+
+                    if additional_clique_state.is_valid() {
+                        if clique_cardinality
+                            .cmp(&maximal_clique_state.clique_cardinality)
+                            .then_with(|| {
+                                additional_clique_state
+                                    .maximal_cmp(&maximal_clique_state.additional_clique_state)
+                            })
+                            .is_gt()
+                        {
+                            maximal_clique_state = CliqueState {
+                                clique: clique.clone(),
+                                clique_cardinality,
+                                additional_clique_state: additional_clique_state.clone(),
+                            };
+                        }
+
+                        let mut next_stack_state: StackState<
+                            Self::BitArray,
+                            Self::AdditionalCliqueState,
+                        > = StackState {
+                            neighbors: stack_state.neighbors.clone(),
+                            vertex_index: vertex_index + 1_usize,
+                            additional_clique_state,
+                        };
+
+                        next_stack_state
+                            .neighbors
+                            .bitand_assign(self.get_neighbors(vertex_index));
+                        next_stack_state.vertex_index =
+                            next_stack_state.next_neighbor_vertex_index();
+
+                        if (clique_cardinality + next_stack_state.neighbor_cardinality())
+                            .cmp(&maximal_clique_state.clique_cardinality)
+                            .then_with(|| {
+                                if next_stack_state
+                                    .additional_clique_state
+                                    .maximal_cmp_always_returns_equal()
+                                {
+                                    Ordering::Equal
+                                } else {
+                                    Ordering::Greater
+                                }
+                            })
+                            .is_gt()
+                        {
+                            stack.push(next_stack_state);
+                        }
+                    }
+                }
+            }
+        }
+
+        maximal_clique_state
     }
 }
