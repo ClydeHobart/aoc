@@ -6,7 +6,7 @@ use {
         bytes::complete::tag, character::complete::line_ending, combinator::map, error::Error,
         multi::separated_list1, sequence::tuple, Err, IResult,
     },
-    std::{cmp::Ordering, ops::BitAndAssign},
+    std::{cmp::Reverse, ops::BitAndAssign},
 };
 
 /* --- Day 23: Experimental Emergency Teleportation ---
@@ -246,35 +246,27 @@ impl From<&NanoBot> for OctahedronIntersection {
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Clone, Default)]
-struct OctahedronIntersectionWithManhattanDistance {
+struct NanoBotUserCliqueState {
     octahedron_intersection: OctahedronIntersection,
+    clique_cardinality: u32,
     manhattan_distance: i32,
 }
 
-impl AdditionalCliqueStateTrait for OctahedronIntersectionWithManhattanDistance {
-    fn is_valid(&self) -> bool {
-        !self.octahedron_intersection.is_empty()
-    }
-
-    fn maximal_cmp(&self, other: &Self) -> Ordering {
-        self.manhattan_distance
-            .cmp(&other.manhattan_distance)
-            .reverse()
-    }
-
-    fn maximal_cmp_always_returns_equal(&self) -> bool {
-        false
+impl NanoBotUserCliqueState {
+    fn cmp_key(&self) -> (u32, Reverse<i32>) {
+        (self.clique_cardinality, Reverse(self.manhattan_distance))
     }
 }
 
 struct NanoBotData<'n> {
     nano_bots: &'n [NanoBot],
     neighbors: Vec<NanoBotBitArray>,
+    maximum_clique_state: Option<CliqueState<NanoBotBitArray, NanoBotUserCliqueState>>,
 }
 
 impl<'n> NanoBotData<'n> {
     fn new(nano_bots: &'n [NanoBot]) -> Self {
-        let mut neighbors: Vec<NanoBotBitArray> = vec![NanoBotBitArray::ZERO; nano_bots.len()];
+        let mut neighbors: Vec<NanoBotBitArray> = vec![Default::default(); nano_bots.len()];
 
         for index_a in 0_usize..nano_bots.len().saturating_sub(1_usize) {
             let octahedron_intersection_a: OctahedronIntersection = (&nano_bots[index_a]).into();
@@ -298,14 +290,15 @@ impl<'n> NanoBotData<'n> {
         Self {
             nano_bots,
             neighbors,
+            maximum_clique_state: None,
         }
     }
 }
 
-impl<'n> MaximumClique for NanoBotData<'n> {
+impl<'n> UserCliqueIteratorTrait for NanoBotData<'n> {
     type BitArray = NanoBotBitArray;
 
-    type AdditionalCliqueState = OctahedronIntersectionWithManhattanDistance;
+    type UserCliqueState = NanoBotUserCliqueState;
 
     fn vertex_count(&self) -> usize {
         self.nano_bots.len()
@@ -313,21 +306,66 @@ impl<'n> MaximumClique for NanoBotData<'n> {
 
     fn integrate_vertex(
         &self,
-        additional_clique_state: &mut Self::AdditionalCliqueState,
         vertex_index: usize,
+        _clique: &Self::BitArray,
+        inout_user_clique_state: &mut Self::UserCliqueState,
     ) {
-        additional_clique_state.octahedron_intersection &= &self.nano_bots[vertex_index];
-        additional_clique_state.manhattan_distance = additional_clique_state
+        inout_user_clique_state.octahedron_intersection &= &self.nano_bots[vertex_index];
+        inout_user_clique_state.clique_cardinality += 1_u32;
+        inout_user_clique_state.manhattan_distance = inout_user_clique_state
             .octahedron_intersection
             .manhattan_distance(IVec3::ZERO);
     }
 
-    fn get_neighbors(&self, vertex_index: usize) -> &Self::BitArray {
-        &self.neighbors[vertex_index]
+    fn is_clique_state_valid(
+        &self,
+        _clique: &Self::BitArray,
+        user_clique_state: &Self::UserCliqueState,
+    ) -> bool {
+        !user_clique_state.octahedron_intersection.is_empty()
+    }
+
+    fn visit_clique(&mut self, clique_state: &CliqueState<Self::BitArray, Self::UserCliqueState>) {
+        if self
+            .maximum_clique_state
+            .as_ref()
+            .map(|maximum_clique_state| {
+                maximum_clique_state.user_clique_state.cmp_key()
+                    < clique_state.user_clique_state.cmp_key()
+            })
+            .unwrap_or(true)
+        {
+            self.maximum_clique_state = Some(clique_state.clone());
+        }
+    }
+
+    fn get_neighbors(
+        &self,
+        vertex_index: usize,
+        _clique: &Self::BitArray,
+        _user_clique_state: &Self::UserCliqueState,
+        out_neighbors: &mut Self::BitArray,
+    ) {
+        *out_neighbors = self.neighbors[vertex_index].clone();
+    }
+
+    fn should_visit_neighbors(
+        &self,
+        _clique: &Self::BitArray,
+        user_clique_state: &Self::UserCliqueState,
+        neighbors: &Self::BitArray,
+    ) -> bool {
+        self.maximum_clique_state
+            .as_ref()
+            .map(|maximum_clique_state| {
+                user_clique_state.clique_cardinality as usize + neighbors.count_ones()
+                    >= maximum_clique_state.user_clique_state.clique_cardinality as usize
+            })
+            .unwrap_or(true)
     }
 }
 
-type NanoBotCliqueState = CliqueState<NanoBotBitArray, OctahedronIntersectionWithManhattanDistance>;
+type NanoBotCliqueState = CliqueState<NanoBotBitArray, NanoBotUserCliqueState>;
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct Solution(Vec<NanoBot>);
@@ -348,12 +386,16 @@ impl Solution {
     }
 
     fn maximum_clique_state(&self) -> NanoBotCliqueState {
-        self.nano_bot_data().run()
+        let mut iterator = self.nano_bot_data().iter();
+
+        (&mut iterator).for_each(|_| ());
+
+        iterator.user_clique_iterator.maximum_clique_state.unwrap()
     }
 
     fn minimum_manhattan_distance_of_maximum_clique(&self) -> i32 {
         self.maximum_clique_state()
-            .additional_clique_state
+            .user_clique_state
             .manhattan_distance
     }
 }
@@ -371,16 +413,13 @@ impl RunQuestions for Solution {
         dbg!(self.count_nano_bots_in_range_of_strongest_nano_bot());
     }
 
+    /// I like maximum clique!
     fn q2_internal(&mut self, args: &QuestionArgs) {
         if args.verbose {
-            let maximum_clique_state: NanoBotCliqueState = self.maximum_clique_state();
+            let maximum_clique_state = self.maximum_clique_state();
 
-            dbg!(maximum_clique_state.clique_cardinality);
-            dbg!(
-                maximum_clique_state
-                    .additional_clique_state
-                    .manhattan_distance
-            );
+            dbg!(maximum_clique_state.clique.count_ones());
+            dbg!(maximum_clique_state.user_clique_state.manhattan_distance);
         } else {
             dbg!(self.minimum_manhattan_distance_of_maximum_clique());
         }
@@ -948,15 +987,15 @@ mod tests {
     #[test]
     fn test_maximum_clique_run() {
         assert_eq!(
-            solution(1_usize).nano_bot_data().run(),
+            solution(1_usize).maximum_clique_state(),
             CliqueState {
                 clique: bitarr_typed!(NanoBotBitArray; 1, 1, 1, 1, 1, 0),
-                clique_cardinality: 5_usize,
-                additional_clique_state: OctahedronIntersectionWithManhattanDistance {
+                user_clique_state: NanoBotUserCliqueState {
                     octahedron_intersection: OctahedronIntersection::new(
                         (12_i32, 12_i32, 12_i32).into(),
                         0_i32
                     ),
+                    clique_cardinality: 5_u32,
                     manhattan_distance: 36_i32
                 }
             }

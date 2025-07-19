@@ -87,12 +87,14 @@ enum SectionAssignmentParseError {
     /// There was no token for the start of the range
     NoStartToken,
 
+    #[allow(dead_code)]
     /// Parsing the token for the start of the range produced an error
     StartFailedToParse(ParseIntError),
 
     /// There was no token for the end of the range
     NoEndToken,
 
+    #[allow(dead_code)]
     /// Parsing the token for the end of the range produced an error
     EndFailedToParse(ParseIntError),
 
@@ -159,12 +161,14 @@ enum SectionAssignmentPairParseError {
     /// There was no token for the first section assignment (field 0)
     NoZeroToken,
 
+    #[allow(dead_code)]
     /// Parsing the token for the first section assignment (field 0) produced an error
     ZeroFailedToParse(SectionAssignmentParseError),
 
     /// There was no token for the second section assignment (field 1)
     NoOneToken,
 
+    #[allow(dead_code)]
     /// Parsing the token for the second section assignment (field 1) produced an error
     OneFailedToParse(SectionAssignmentParseError),
 

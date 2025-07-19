@@ -8,12 +8,6 @@ use {
     },
 };
 
-#[derive(Debug, PartialEq)]
-struct BracketPair {
-    left: usize,
-    right: usize,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Packet {
     List(Vec<Packet>),

@@ -1,5 +1,6 @@
 use {crate::*, bitvec::prelude::*, glam::IVec2, std::mem::MaybeUninit};
 
+#[allow(dead_code)]
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct CharOutOfBounds(char);

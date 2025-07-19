@@ -538,11 +538,11 @@ impl PathToTargetFinder {
     }
 
     fn try_dist_to_target(&mut self) -> Option<i32> {
-        self.run().map(|_| self.dist_to_target())
+        self.run_a_star().map(|_| self.dist_to_target())
     }
 
     fn try_dist_to_target_and_grid_string(&mut self) -> Option<(i32, String)> {
-        self.run().map(|path| {
+        self.run_a_star().map(|path| {
             let mut region_grid: Grid2D<Region> = Grid2D::try_from_cells_and_dimensions(
                 self.region_data_grid
                     .cells()
@@ -570,7 +570,7 @@ impl PathToTargetFinder {
     }
 }
 
-impl AStar for PathToTargetFinder {
+impl WeightedGraphSearch for PathToTargetFinder {
     type Vertex = Vertex;
 
     type Cost = i32;

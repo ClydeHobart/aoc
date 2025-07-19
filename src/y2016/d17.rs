@@ -197,7 +197,7 @@ struct ShortestPathFinder<const PATH_BITARR_LEN: usize = 2_usize> {
     visited: HashSet<DirPath<PATH_BITARR_LEN>>,
 }
 
-impl<const PATH_BITARR_LEN: usize> AStar for ShortestPathFinder<PATH_BITARR_LEN> {
+impl<const PATH_BITARR_LEN: usize> WeightedGraphSearch for ShortestPathFinder<PATH_BITARR_LEN> {
     type Vertex = DirPath<PATH_BITARR_LEN>;
     type Cost = usize;
 
@@ -419,7 +419,9 @@ impl Solution {
             visited: HashSet::new(),
         };
 
-        path_finder.run().map(|path| path.last().unwrap().clone())
+        path_finder
+            .run_a_star()
+            .map(|path| path.last().unwrap().clone())
     }
 
     fn try_shortest_path_to_end_string(&self, start: IVec2, end: IVec2) -> Option<String> {

@@ -302,36 +302,6 @@ impl BeaconPair {
     }
 }
 
-#[derive(Clone, Copy)]
-struct BeaconPairLink {
-    beacon_pair: BeaconPair,
-
-    /// The next `PairData` index relative to `DeltaPairMap::pair_data_vec` for the owning
-    /// `Scanner`, or `u32::MAX` if there is none.
-    next: u32,
-}
-
-struct BeaconPairIter<'l> {
-    beacon_pair_links: &'l [BeaconPairLink],
-    next: u32,
-}
-
-impl<'l> Iterator for BeaconPairIter<'l> {
-    type Item = BeaconPair;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.next == u32::MAX {
-            None
-        } else {
-            let beacon_pair_link: BeaconPairLink = self.beacon_pair_links[self.next as usize];
-
-            self.next = beacon_pair_link.next;
-
-            Some(beacon_pair_link.beacon_pair)
-        }
-    }
-}
-
 struct ScannerData {
     norm_delta_range: Range<u32>,
     beacons: usize,

@@ -187,8 +187,8 @@ impl Solution {
     fn try_insert_antinode(&self, antinode: IVec2, antinodes: &mut Vec<IVec2>) -> bool {
         self.contains(antinode)
             && if let Err(antinode_index) = antinodes
-                .binary_search_by_key(&sortable_index_from_pos(antinode), |antinode| {
-                    sortable_index_from_pos(*antinode)
+                .binary_search_by_key(&sortable_index_from_pos_2d(antinode), |antinode| {
+                    sortable_index_from_pos_2d(*antinode)
                 })
             {
                 antinodes.insert(antinode_index, antinode);

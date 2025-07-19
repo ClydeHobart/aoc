@@ -12,8 +12,11 @@ struct ProcessState {
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
 enum ProcessCharError {
+    #[allow(dead_code)]
     CharIsNotAsciiLowercase(char),
+    #[allow(dead_code)]
     PoppingCharWithZeroCount(char),
+    #[allow(dead_code)]
     DecrementingCharCountToZeroWithZeroPresentTotal(char),
 }
 
@@ -21,7 +24,9 @@ enum ProcessCharError {
 #[cfg_attr(test, derive(PartialEq))]
 enum DetectMarkerError {
     ConsecutiveDistinctCharsIsTooLarge,
+    #[allow(dead_code)]
     ProcessCharError(ProcessCharError),
+    #[allow(dead_code)]
     NoMarkerFound(usize),
 }
 

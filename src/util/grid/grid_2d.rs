@@ -49,6 +49,12 @@ macro_rules! define_direction {
 mod direction {
     use {
         super::*,
+        nom::{
+            bytes::complete::tag,
+            combinator::{success, verify},
+            error::{Error, ErrorKind},
+            Err as NomErr, IResult,
+        },
         static_assertions::const_assert,
         std::mem::transmute,
         strum::{EnumCount, EnumIter},
@@ -124,6 +130,24 @@ mod direction {
                 Self::East => IVec2::X,
                 Self::South => IVec2::Y,
                 Self::West => IVec2::NEG_X,
+            }
+        }
+
+        pub fn parse_from_nesw<'i>(nesw: &'i str) -> impl FnMut(&'i str) -> IResult<&'i str, Self> {
+            |input| {
+                verify(success(()), |_| nesw.len() == Self::COUNT)(input)?;
+
+                Self::iter()
+                    .zip(nesw.as_bytes().chunks_exact(1_usize))
+                    .try_fold((), |_, (dir, dir_tag)| match tag(dir_tag)(input) {
+                        Ok((input, _)) => Err(Ok((input, dir))),
+                        Err(NomErr::Error(_)) => Ok(()),
+                        Err(err) => Err(Err(err)),
+                    })
+                    .map_or_else(
+                        |result| result,
+                        |_| Err(NomErr::Error(Error::new(input, ErrorKind::Alt))),
+                    )
             }
         }
     }
@@ -976,13 +1000,11 @@ pub trait GridVisitor: Default + Sized {
 }
 
 pub fn manhattan_magnitude_2d(pos: IVec2) -> i32 {
-    let abs: IVec2 = pos.abs();
-
-    abs.x + abs.y
+    pos.manhattan_magnitude()
 }
 
 pub fn manhattan_distance_2d(a: IVec2, b: IVec2) -> i32 {
-    manhattan_magnitude_2d(a - b)
+    a.manhattan_distance(b)
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -1095,13 +1117,10 @@ impl SmallPosAndDir {
     }
 }
 
-pub fn sortable_index_from_pos(pos: IVec2) -> u64 {
+pub fn sortable_index_from_pos_2d(pos: IVec2) -> u64 {
     const TOGGLE_MASK: u64 = (1_u64 << (u64::BITS - 1_u32)) | (1_u64 << (u32::BITS - 1_u32));
 
-    // SAFETY: Trivial.
-    ((unsafe { transmute::<i32, u32>(pos.y) } as u64) << u32::BITS
-        | unsafe { transmute::<i32, u32>(pos.x) } as u64)
-        ^ TOGGLE_MASK
+    ((pos.y.cast_unsigned() as u64) << u32::BITS | pos.x.cast_unsigned() as u64) ^ TOGGLE_MASK
 }
 
 #[cfg(test)]

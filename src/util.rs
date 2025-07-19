@@ -1,10 +1,14 @@
 pub use {
+    bit::*,
     graph::*,
     grid::*,
     imat3::*,
     index::*,
-    letter_counts::*,
+    knapsack::*,
+    letter::*,
     linked_list::*,
+    linked_trie::*,
+    necklace::*,
     no_drop_vec::*,
     nom::{error::Error as NomError, Err as NomErr},
     pixel::Pixel,
@@ -15,16 +19,17 @@ pub use {
 };
 
 use {
+    arrayvec::ArrayVec,
     clap::Parser,
     glam::IVec3,
     memmap::Mmap,
     nom::{
         branch::alt,
         bytes::complete::{tag, take},
-        character::complete::digit1,
-        combinator::{all_consuming, map, map_res, opt, rest, success},
+        character::complete::{digit1, line_ending},
+        combinator::{all_consuming, cond, map, map_res, opt, rest, success},
         multi::many_m_n,
-        sequence::tuple,
+        sequence::{preceded, tuple},
         IResult, Parser as NomParser,
     },
     num::{Integer, NumCast, PrimInt, ToPrimitive},
@@ -39,7 +44,7 @@ use {
         io::{Error as IoError, ErrorKind, Result as IoResult},
         iter::from_fn,
         mem::{size_of, transmute, ManuallyDrop, MaybeUninit},
-        ops::{Deref, DerefMut, Range, RangeInclusive},
+        ops::{Deref, DerefMut, Div, Range, RangeInclusive, Rem},
         str::{from_utf8, FromStr, Utf8Error},
         task::Poll,
     },
@@ -48,13 +53,17 @@ use {
 #[cfg(test)]
 use std::rc::Rc;
 
+mod bit;
 mod graph;
 mod grid;
 mod imat3;
 mod index;
-mod letter_counts;
+mod knapsack;
+mod letter;
 mod linked_list;
+mod linked_trie;
 pub mod minimal_value_with_all_digit_pairs;
+mod necklace;
 mod no_drop_vec;
 pub mod pixel;
 mod region_tree;
@@ -484,8 +493,12 @@ pub unsafe fn open_utf8_file<T, F: FnOnce(&str) -> T>(file_path: &str, f: F) -> 
     Ok(f(utf8_str))
 }
 
-pub fn min_and_max<T: Ord + Copy>(v1: T, v2: T) -> (T, T) {
+pub fn min_and_max<T: Copy + Ord>(v1: T, v2: T) -> (T, T) {
     (min(v1, v2), max(v1, v2))
+}
+
+pub fn div_and_rem<T: Copy + Div<Output = T> + Rem<Output = T>>(lhs: T, rhs: T) -> (T, T) {
+    (lhs / rhs, lhs % rhs)
 }
 
 pub fn try_intersection<T: Ord + Copy>(range1: Range<T>, range2: Range<T>) -> Option<Range<T>> {
@@ -531,6 +544,10 @@ impl<'i, 't, I: Iterator<Item = &'t str>> DerefMut for TokenStream<'i, 't, I> {
 
 pub fn unreachable_any<T, U>(_: T) -> U {
     unreachable!();
+}
+
+pub fn copy_opt_mut<'a, 'b: 'a, T>(value: &'a mut Option<&'b mut T>) -> Option<&'a mut T> {
+    value.as_mut().map(|value| &mut **value)
 }
 
 pub const LOWERCASE_A_OFFSET: u8 = b'a';
@@ -584,7 +601,7 @@ pub fn parse_integer_n_bytes<'i, I: FromStr + Integer>(
     })
 }
 
-fn parse_array_internal<
+pub fn parse_separated_array_vec<
     'i,
     const LEN: usize,
     O: Default,
@@ -594,28 +611,55 @@ fn parse_array_internal<
 >(
     mut f: F,
     mut g: G,
-    is_terminated: bool,
-) -> impl FnMut(&'i str) -> IResult<&'i str, [O; LEN]> {
+) -> impl FnMut(&'i str) -> IResult<&'i str, ArrayVec<O, LEN>> {
     move |input: &'i str| {
-        let mut array: [O; LEN] = LargeArrayDefault::large_array_default();
-        let mut index: usize = 0_usize;
+        let mut array_vec: ArrayVec<O, LEN> = ArrayVec::new();
 
-        let input: &str = many_m_n(LEN, LEN, |input: &'i str| {
-            let (mut input, value): (&str, O) = f.parse(input)?;
-            let next_index: usize = index + 1_usize;
+        let input: &str = many_m_n(0_usize, LEN, |input: &'i str| {
+            let (input, value): (&str, O) = preceded(
+                cond(!array_vec.is_empty(), |input| g.parse(input)),
+                |input| f.parse(input),
+            )(input)?;
 
-            if next_index != LEN || is_terminated {
-                input = g.parse(input)?.0;
-            }
-
-            array[index] = value;
-            index = next_index;
+            array_vec.push(value);
 
             Ok((input, ()))
         })(input)?
         .0;
 
-        Ok((input, array))
+        Ok((input, array_vec))
+    }
+}
+
+pub fn parse_array_vec<
+    'i,
+    const LEN: usize,
+    O: Default,
+    F: NomParser<&'i str, O, NomError<&'i str>>,
+>(
+    f: F,
+) -> impl FnMut(&'i str) -> IResult<&'i str, ArrayVec<O, LEN>> {
+    parse_separated_array_vec(f, success(()))
+}
+
+pub fn parse_terminated_array_vec<
+    'i,
+    const LEN: usize,
+    O: Default,
+    O2,
+    F: NomParser<&'i str, O, NomError<&'i str>>,
+    G: NomParser<&'i str, O2, NomError<&'i str>>,
+>(
+    mut f: F,
+    mut g: G,
+) -> impl FnMut(&'i str) -> IResult<&'i str, ArrayVec<O, LEN>> {
+    move |input: &'i str| {
+        let (input, array_vec): (&str, ArrayVec<O, LEN>) =
+            parse_separated_array_vec(|input| f.parse(input), |input| g.parse(input))(input)?;
+
+        let input: &str = g.parse(input)?.0;
+
+        Ok((input, array_vec))
     }
 }
 
@@ -627,7 +671,7 @@ pub fn parse_array<
 >(
     f: F,
 ) -> impl FnMut(&'i str) -> IResult<&'i str, [O; LEN]> {
-    parse_array_internal(f, success(()), false)
+    map_res(parse_array_vec(f), ArrayVec::into_inner)
 }
 
 pub fn parse_separated_array<
@@ -641,7 +685,7 @@ pub fn parse_separated_array<
     f: F,
     g: G,
 ) -> impl FnMut(&'i str) -> IResult<&'i str, [O; LEN]> {
-    parse_array_internal(f, g, false)
+    map_res(parse_separated_array_vec(f, g), ArrayVec::into_inner)
 }
 
 pub fn parse_terminated_array<
@@ -655,11 +699,47 @@ pub fn parse_terminated_array<
     f: F,
     g: G,
 ) -> impl FnMut(&'i str) -> IResult<&'i str, [O; LEN]> {
-    parse_array_internal(f, g, true)
+    map_res(parse_terminated_array_vec(f, g), ArrayVec::into_inner)
+}
+
+pub fn parse_line_endings<'i>(n: usize) -> impl FnMut(&'i str) -> IResult<&'i str, ()> {
+    map(many_m_n(n, n, map(line_ending, |_| ())), |_| ())
 }
 
 pub trait Parse: Sized {
     fn parse<'i>(input: &'i str) -> IResult<&'i str, Self>;
+}
+
+#[macro_export]
+macro_rules! impl_Parse_for_Enum {
+    ($enum:ty) => {
+        impl Parse for $enum {
+            fn parse<'i>(input: &'i str) -> nom::IResult<&'i str, Self> {
+                use {
+                    nom::{bytes::complete::tag, combinator::map},
+                    strum::{IntoEnumIterator, VariantNames},
+                };
+
+                Self::iter()
+                    .try_for_each(|enum_value| {
+                        match map(tag(Self::VARIANTS[enum_value as usize]), |_| enum_value)(input) {
+                            Ok(value) => Result::Err(Ok(value)),
+                            Result::Err(nom::Err::Error(_)) => Ok(()),
+                            Result::Err(error) => Result::Err(Result::Err(error)),
+                        }
+                    })
+                    .map_or_else(
+                        |result| result,
+                        |_| {
+                            Result::Err(nom::Err::Error(Error {
+                                input,
+                                code: nom::error::ErrorKind::Alt,
+                            }))
+                        },
+                    )
+            }
+        }
+    };
 }
 
 pub const fn imat3_const_inverse(imat3: &IMat3) -> IMat3 {
@@ -827,6 +907,13 @@ impl<T: Hash> ComputeHash for T {
         self.hash(&mut hasher);
 
         hasher.finish()
+    }
+}
+
+pub const fn factorial(value: usize) -> usize {
+    match value {
+        0_usize..=1_usize => 1_usize,
+        _ => value * factorial(value - 1_usize),
     }
 }
 
@@ -1368,14 +1455,6 @@ fn test_extended_euclidean_algorithm() {
             y: 47_i64,
         }
     );
-}
-
-pub const fn bits_to_store(value: u32) -> u32 {
-    match value.count_ones() {
-        0_u32 => 1_u32,
-        1_u32 => value.ilog2(),
-        _ => value.ilog2() + 1_u32,
-    }
 }
 
 #[macro_export]

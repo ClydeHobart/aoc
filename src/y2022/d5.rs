@@ -308,9 +308,12 @@ struct CargoStacks(Vec<Vec<u8>>);
 
 #[derive(Debug)]
 enum ProcedureStepFailedReason {
+    #[allow(dead_code)]
     FromIndexTooLarge(usize),
+    #[allow(dead_code)]
     ToIndexTooLarge(usize),
     IdenticalIndices,
+    #[allow(dead_code)]
     InadequateCount(usize),
 }
 

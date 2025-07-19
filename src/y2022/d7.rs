@@ -469,9 +469,12 @@ mod file_system {
 
     #[derive(Debug)]
     pub enum FileSystemParseError<'s> {
+        #[allow(dead_code)]
         FailedToParseLine(LineParseError<'s>),
+        #[allow(dead_code)]
         InvalidChildDirectory(&'s str),
         ReceivedOutputWhileNotListing,
+        #[allow(dead_code)]
         InternalError(FileSystemInternalError),
     }
 

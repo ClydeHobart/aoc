@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use {super::*, std::cmp::Ordering};
 
 #[cfg_attr(test, derive(Debug))]
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -24,11 +24,9 @@ impl PartialOrd for LetterCount {
 
 #[cfg_attr(test, derive(Debug))]
 #[derive(Eq, Hash, PartialEq)]
-pub struct LetterCounts(pub [LetterCount; Self::LEN]);
+pub struct LetterCounts(pub [LetterCount; LETTER_COUNT]);
 
 impl LetterCounts {
-    pub const LEN: usize = 26_usize;
-
     pub fn from_str(value: &str) -> Self {
         value.as_bytes().iter().copied().into()
     }
@@ -50,7 +48,7 @@ impl<T: Iterator<Item = u8>> From<T> for LetterCounts {
         let mut letter_counts: Self = Self::default();
 
         for letter in value.filter(u8::is_ascii_lowercase) {
-            letter_counts.0[(letter - b'a') as usize].count += 1_u8;
+            letter_counts.0[index_from_ascii_lowercase_letter(letter)].count += 1_u8;
         }
 
         letter_counts.0.sort();
@@ -65,11 +63,11 @@ impl Default for LetterCounts {
             [LetterCount {
                 letter: 0_u8,
                 count: 0_u8,
-            }; Self::LEN],
+            }; LETTER_COUNT],
         );
 
         for (index, letter_count) in letter_counts.0.iter_mut().enumerate() {
-            letter_count.letter = b'a' + index as u8;
+            letter_count.letter = ascii_lowercase_letter_from_index(index);
         }
 
         letter_counts

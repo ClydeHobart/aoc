@@ -50,6 +50,7 @@ impl<'i> TryFrom<&'i str> for State {
 
     fn try_from(input: &'i str) -> Result<Self, Self::Error> {
         enum ParseTimerError {
+            #[allow(dead_code)]
             ParseIntError(ParseIntError),
             OutOfRange,
         }

@@ -6,6 +6,7 @@ use {
     strum::{EnumCount, IntoEnumIterator},
 };
 
+#[allow(dead_code)]
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct CharOutOfBounds(char);

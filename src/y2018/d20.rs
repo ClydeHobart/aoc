@@ -169,7 +169,7 @@ struct PosAndDist {
 
 impl PosAndDist {
     fn sortable_index(&self) -> u64 {
-        sortable_index_from_pos(self.pos)
+        sortable_index_from_pos_2d(self.pos)
     }
 
     fn cmp_without_dist(a: &Self, b: &Self) -> Ordering {

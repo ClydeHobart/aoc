@@ -320,7 +320,7 @@ struct GuardRecord {
 }
 
 impl GuardRecord {
-    const MINUTE_OF_DAY_RANGE_END: u16 = 1_u16 << bits_to_store(Time::MINS_PER_DAY);
+    const MINUTE_OF_DAY_RANGE_END: u16 = 1_u16 << bits_to_store(Time::MINS_PER_DAY as usize);
 
     fn minutes_asleep(self, solution: &Solution) -> u32 {
         solution.date_records[self.date_record_range.as_range_usize()]

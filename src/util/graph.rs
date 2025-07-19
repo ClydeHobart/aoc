@@ -2,6 +2,7 @@ use {
     super::CellIter2D,
     bitvec::prelude::*,
     glam::IVec2,
+    num::Zero,
     std::{
         cmp::Ordering,
         collections::{BinaryHeap, HashSet, VecDeque},
@@ -12,10 +13,10 @@ use {
     },
 };
 
-pub struct DepthFirstSearchState<Vertex> {
-    stack: Vec<Vertex>,
-    explored: HashSet<Vertex>,
-    neighbors: Vec<Vertex>,
+pub struct DepthFirstSearchState<V> {
+    stack: Vec<V>,
+    explored: HashSet<V>,
+    neighbors: Vec<V>,
 }
 
 impl<Vertex> DepthFirstSearchState<Vertex> {
@@ -36,7 +37,7 @@ impl<Vertex> Default for DepthFirstSearchState<Vertex> {
     }
 }
 
-pub trait DepthFirstSearch: Sized {
+pub trait DepthFirstSearch {
     type Vertex: Clone + Eq + Hash;
 
     fn start(&self) -> &Self::Vertex;
@@ -81,13 +82,13 @@ pub trait DepthFirstSearch: Sized {
     }
 }
 
-pub struct BreadthFirstSearchState<Vertex> {
-    queue: VecDeque<Vertex>,
-    explored: HashSet<Vertex>,
-    neighbors: Vec<Vertex>,
+pub struct BreadthFirstSearchState<V> {
+    queue: VecDeque<V>,
+    explored: HashSet<V>,
+    neighbors: Vec<V>,
 }
 
-impl<Vertex> BreadthFirstSearchState<Vertex> {
+impl<V> BreadthFirstSearchState<V> {
     fn clear(&mut self) {
         self.queue.clear();
         self.explored.clear();
@@ -95,7 +96,7 @@ impl<Vertex> BreadthFirstSearchState<Vertex> {
     }
 }
 
-impl<Vertex> Default for BreadthFirstSearchState<Vertex> {
+impl<V> Default for BreadthFirstSearchState<V> {
     fn default() -> Self {
         Self {
             queue: Default::default(),
@@ -106,7 +107,7 @@ impl<Vertex> Default for BreadthFirstSearchState<Vertex> {
 }
 
 /// An implementation of https://en.wikipedia.org/wiki/Breadth-first_search
-pub trait BreadthFirstSearch: Sized {
+pub trait BreadthFirstSearch {
     type Vertex: Clone + Eq + Hash;
 
     fn start(&self) -> &Self::Vertex;
@@ -151,7 +152,7 @@ pub trait BreadthFirstSearch: Sized {
     }
 }
 
-pub struct OpenSetElement<V: Clone + PartialEq, C: Clone + Ord>(pub V, pub C);
+pub struct OpenSetElement<V, C>(pub V, pub C);
 
 impl<V: Clone + PartialEq, C: Clone + Ord> PartialEq for OpenSetElement<V, C> {
     fn eq(&self, other: &Self) -> bool {
@@ -175,10 +176,60 @@ impl<V: Clone + PartialEq, C: Clone + Ord> Ord for OpenSetElement<V, C> {
     }
 }
 
-/// An implementation of https://en.wikipedia.org/wiki/A*_search_algorithm
-pub trait AStar: Sized {
+struct NeighborUpdate {
+    cost_is_lower: bool,
+    is_in_open_set: bool,
+}
+
+pub struct WeightedGraphSearchState<V, C> {
+    open_set_heap: BinaryHeap<OpenSetElement<V, C>>,
+    open_set_set: HashSet<V>,
+    neighbors: Vec<OpenSetElement<V, C>>,
+    neighbor_updates: Vec<NeighborUpdate>,
+}
+
+impl<V, C> WeightedGraphSearchState<V, C> {
+    fn clear(&mut self) {
+        self.open_set_heap.clear();
+        self.open_set_set.clear();
+        self.neighbors.clear();
+        self.neighbor_updates.clear();
+    }
+}
+
+impl<V, C> Default for WeightedGraphSearchState<V, C>
+where
+    OpenSetElement<V, C>: Ord,
+{
+    fn default() -> Self {
+        Self {
+            open_set_heap: Default::default(),
+            open_set_set: Default::default(),
+            neighbors: Default::default(),
+            neighbor_updates: Default::default(),
+        }
+    }
+}
+
+pub fn zero_heuristic<W: WeightedGraphSearch + ?Sized>(
+    _search: &W,
+    _vertex: &W::Vertex,
+) -> W::Cost {
+    W::Cost::zero()
+}
+
+// fn try_cost_as_u64<C: Clone>(cost: &C) -> Option<u64> {
+//     use std::mem::{align_of, size_of, transmute};
+
+//     (size_of::<C>() == size_of::<u64>() && align_of::<C>() <= align_of::<u64>())
+//         .then(|| *unsafe { transmute::<&C, &u64>(cost) })
+// }
+
+/// An implementation of https://en.wikipedia.org/wiki/A*_search_algorithm and
+/// https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm
+pub trait WeightedGraphSearch {
     type Vertex: Clone + Eq + Hash;
-    type Cost: Add<Self::Cost, Output = Self::Cost> + Clone + Ord + Sized;
+    type Cost: Add<Self::Cost, Output = Self::Cost> + Clone + Ord + Sized + Zero;
 
     fn start(&self) -> &Self::Vertex;
     fn is_end(&self, vertex: &Self::Vertex) -> bool;
@@ -192,6 +243,8 @@ pub trait AStar: Sized {
         vertex: &Self::Vertex,
         neighbors: &mut Vec<OpenSetElement<Self::Vertex, Self::Cost>>,
     );
+
+    /// `heuristic` may be zero if this is called by Dijkstra.
     fn update_vertex(
         &mut self,
         from: &Self::Vertex,
@@ -201,45 +254,44 @@ pub trait AStar: Sized {
     );
     fn reset(&mut self);
 
-    fn run(&mut self) -> Option<Vec<Self::Vertex>> {
+    fn run_internal<F: Fn(&Self, &Self::Vertex) -> Self::Cost>(
+        &mut self,
+        state: &mut WeightedGraphSearchState<Self::Vertex, Self::Cost>,
+        heuristic: F,
+    ) -> Option<Vec<Self::Vertex>> {
         self.reset();
+        state.clear();
 
         let start: Self::Vertex = self.start().clone();
 
-        let mut open_set_heap: BinaryHeap<OpenSetElement<Self::Vertex, Self::Cost>> =
-            BinaryHeap::new();
-        let mut open_set_set: HashSet<Self::Vertex> = HashSet::new();
-
-        open_set_heap.push(OpenSetElement(
+        state.open_set_heap.push(OpenSetElement(
             start.clone(),
-            self.cost_from_start(&start) + self.heuristic(&start),
+            self.cost_from_start(&start) + heuristic(self, &start),
         ));
-        open_set_set.insert(start);
+        state.open_set_set.insert(start);
 
-        let mut neighbors: Vec<OpenSetElement<Self::Vertex, Self::Cost>> = Vec::new();
-        let mut neighbor_updates: Vec<NeighborUpdate> = Vec::new();
-
-        while let Some(OpenSetElement(current, _)) = open_set_heap.pop() {
+        while let Some(OpenSetElement(current, _)) = state.open_set_heap.pop() {
             if self.is_end(&current) {
                 return Some(self.path_to(&current));
             }
 
             let start_to_current: Self::Cost = self.cost_from_start(&current);
 
-            open_set_set.remove(&current);
-            self.neighbors(&current, &mut neighbors);
+            state.open_set_set.remove(&current);
+            self.neighbors(&current, &mut state.neighbors);
 
-            if !neighbors.is_empty() {
-                neighbor_updates.reserve(neighbors.len());
+            if !state.neighbors.is_empty() {
+                state.neighbor_updates.reserve(state.neighbors.len());
 
                 let mut neighbor_updates_count: usize = 0_usize;
                 let mut any_update_was_in_open_set_set: bool = false;
 
-                for OpenSetElement(neighbor, cost) in neighbors.iter_mut() {
-                    let start_to_neighbor: Self::Cost = start_to_current.clone() + cost.clone();
+                for OpenSetElement(neighbor, neighbor_cost) in state.neighbors.iter_mut() {
+                    let start_to_neighbor: Self::Cost =
+                        start_to_current.clone() + neighbor_cost.clone();
 
                     if start_to_neighbor < self.cost_from_start(neighbor) {
-                        let neighbor_heuristic: Self::Cost = self.heuristic(neighbor);
+                        let neighbor_heuristic: Self::Cost = heuristic(self, neighbor);
 
                         self.update_vertex(
                             &current,
@@ -248,17 +300,17 @@ pub trait AStar: Sized {
                             neighbor_heuristic.clone(),
                         );
 
-                        let is_in_open_set: bool = !open_set_set.insert(neighbor.clone());
+                        let is_in_open_set: bool = !state.open_set_set.insert(neighbor.clone());
 
-                        *cost = start_to_neighbor + neighbor_heuristic;
-                        neighbor_updates.push(NeighborUpdate {
+                        *neighbor_cost = start_to_neighbor + neighbor_heuristic;
+                        state.neighbor_updates.push(NeighborUpdate {
                             cost_is_lower: true,
                             is_in_open_set,
                         });
                         neighbor_updates_count += 1_usize;
                         any_update_was_in_open_set_set |= is_in_open_set;
                     } else {
-                        neighbor_updates.push(NeighborUpdate {
+                        state.neighbor_updates.push(NeighborUpdate {
                             cost_is_lower: false,
                             is_in_open_set: false,
                         });
@@ -270,15 +322,23 @@ pub trait AStar: Sized {
                     // don't waste time during `push` operations only to have that effort ignored
                     // when converting back to a heap
                     let mut open_set_elements: Vec<OpenSetElement<Self::Vertex, Self::Cost>> =
-                        take(&mut open_set_heap).into_vec();
+                        take(&mut state.open_set_heap).into_vec();
 
                     let old_element_count: usize = open_set_elements.len();
 
-                    for (open_set_element, neighbor_update) in
-                        neighbors.drain(..).zip(neighbor_updates.drain(..))
+                    for (
+                        open_set_element,
+                        NeighborUpdate {
+                            cost_is_lower,
+                            is_in_open_set,
+                        },
+                    ) in state
+                        .neighbors
+                        .drain(..)
+                        .zip(state.neighbor_updates.drain(..))
                     {
-                        if neighbor_update.cost_is_lower {
-                            if neighbor_update.is_in_open_set {
+                        if cost_is_lower {
+                            if is_in_open_set {
                                 if let Some(OpenSetElement(_, cost_mut)) = open_set_elements
                                     [..old_element_count]
                                     .iter_mut()
@@ -292,14 +352,15 @@ pub trait AStar: Sized {
                         }
                     }
 
-                    open_set_heap = open_set_elements.into();
+                    state.open_set_heap = open_set_elements.into();
                 } else if neighbor_updates_count > 0_usize {
                     // None of the neighbors were previously in the open set, so just add all
                     // normally
-                    open_set_heap.extend(
-                        neighbors
+                    state.open_set_heap.extend(
+                        state
+                            .neighbors
                             .drain(..)
-                            .zip(neighbor_updates.drain(..))
+                            .zip(state.neighbor_updates.drain(..))
                             .filter_map(|(open_set_element, neighbor_update)| {
                                 if neighbor_update.cost_is_lower {
                                     Some(open_set_element)
@@ -310,212 +371,34 @@ pub trait AStar: Sized {
                     );
                 }
 
-                neighbors.clear();
-                neighbor_updates.clear();
+                state.neighbors.clear();
+                state.neighbor_updates.clear();
             }
         }
 
         None
     }
-}
 
-pub struct KahnState<V> {
-    pub list: Vec<V>,
-    set: VecDeque<V>,
-    neighbors: Vec<V>,
-}
-
-impl<V> Default for KahnState<V> {
-    fn default() -> Self {
-        Self {
-            list: Default::default(),
-            set: Default::default(),
-            neighbors: Default::default(),
-        }
-    }
-}
-
-/// An implementation of [Kahn's Algorithm][kahn] for producing a topological sort of a DAG.
-///
-/// [kahn]: https://en.wikipedia.org/wiki/Topological_sorting#Kahn%27s_algorithm
-pub trait Kahn {
-    type Vertex: Clone;
-
-    fn populate_initial_set(&self, initial_set: &mut VecDeque<Self::Vertex>);
-    fn out_neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>);
-    fn remove_edge(&mut self, from: &Self::Vertex, to: &Self::Vertex);
-    fn has_in_neighbors(&self, vertex: &Self::Vertex) -> bool;
-    fn any_edges_exist(&self) -> bool;
-    fn reset(&mut self);
-    fn order_set(&self, set: &mut VecDeque<Self::Vertex>);
-
-    fn run_internal(&mut self, state: &mut KahnState<Self::Vertex>) -> bool {
-        state.list.clear();
-        state.set.clear();
-        state.neighbors.clear();
-
-        self.reset();
-        self.populate_initial_set(&mut state.set);
-
-        while let Some(vertex) = state.set.pop_front() {
-            state.list.push(vertex.clone());
-            state.neighbors.clear();
-            self.out_neighbors(&vertex, &mut state.neighbors);
-
-            let mut pushed_into_set: bool = false;
-
-            for neighbor in state.neighbors.drain(..) {
-                self.remove_edge(&vertex, &neighbor);
-
-                if !self.has_in_neighbors(&neighbor) {
-                    state.set.push_back(neighbor);
-                    pushed_into_set = true;
-                }
-            }
-
-            if pushed_into_set {
-                self.order_set(&mut state.set);
-            }
-        }
-
-        !self.any_edges_exist()
+    fn run_a_star_internal(
+        &mut self,
+        state: &mut WeightedGraphSearchState<Self::Vertex, Self::Cost>,
+    ) -> Option<Vec<Self::Vertex>> {
+        self.run_internal(state, Self::heuristic)
     }
 
-    fn run(&mut self) -> Option<Vec<Self::Vertex>> {
-        let mut state: KahnState<Self::Vertex> = KahnState::default();
-
-        self.run_internal(&mut state).then_some(state.list)
+    fn run_a_star(&mut self) -> Option<Vec<Self::Vertex>> {
+        self.run_a_star_internal(&mut WeightedGraphSearchState::default())
     }
-}
 
-struct NeighborUpdate {
-    cost_is_lower: bool,
-    is_in_open_set: bool,
-}
+    fn run_dijkstra_internal(
+        &mut self,
+        state: &mut WeightedGraphSearchState<Self::Vertex, Self::Cost>,
+    ) -> Option<Vec<Self::Vertex>> {
+        self.run_internal(state, zero_heuristic::<Self>)
+    }
 
-pub trait Dijkstra: Sized {
-    type Vertex: Clone + Eq + Hash;
-    type Cost: Add<Self::Cost, Output = Self::Cost> + Clone + Ord + Sized;
-
-    fn start(&self) -> &Self::Vertex;
-    fn is_end(&self, vertex: &Self::Vertex) -> bool;
-    fn path_to(&self, vertex: &Self::Vertex) -> Vec<Self::Vertex>;
-    fn cost_from_start(&self, vertex: &Self::Vertex) -> Self::Cost;
-    fn neighbors(
-        &self,
-        vertex: &Self::Vertex,
-        neighbors: &mut Vec<OpenSetElement<Self::Vertex, Self::Cost>>,
-    );
-    fn update_vertex(&mut self, from: &Self::Vertex, to: &Self::Vertex, cost: Self::Cost);
-    fn reset(&mut self);
-
-    fn run(&mut self) -> Option<Vec<Self::Vertex>> {
-        self.reset();
-
-        let start: Self::Vertex = self.start().clone();
-
-        let mut open_set_heap: BinaryHeap<OpenSetElement<Self::Vertex, Self::Cost>> =
-            BinaryHeap::new();
-        let mut open_set_set: HashSet<Self::Vertex> = HashSet::new();
-
-        open_set_heap.push(OpenSetElement(start.clone(), self.cost_from_start(&start)));
-        open_set_set.insert(start);
-
-        let mut neighbors: Vec<OpenSetElement<Self::Vertex, Self::Cost>> = Vec::new();
-        let mut neighbor_updates: Vec<NeighborUpdate> = Vec::new();
-
-        while let Some(OpenSetElement(current, start_to_current)) = open_set_heap.pop() {
-            if self.is_end(&current) {
-                return Some(self.path_to(&current));
-            }
-
-            open_set_set.remove(&current);
-            self.neighbors(&current, &mut neighbors);
-
-            if !neighbors.is_empty() {
-                neighbor_updates.reserve(neighbors.len());
-
-                let mut neighbor_updates_count: usize = 0_usize;
-                let mut any_update_was_in_open_set_set: bool = false;
-
-                for OpenSetElement(neighbor, neighbor_cost) in neighbors.iter_mut() {
-                    let start_to_neighbor: Self::Cost =
-                        start_to_current.clone() + neighbor_cost.clone();
-
-                    if start_to_neighbor < self.cost_from_start(neighbor) {
-                        self.update_vertex(&current, neighbor, start_to_neighbor.clone());
-
-                        let is_in_open_set: bool = !open_set_set.insert(neighbor.clone());
-
-                        *neighbor_cost = start_to_neighbor;
-                        neighbor_updates.push(NeighborUpdate {
-                            cost_is_lower: true,
-                            is_in_open_set,
-                        });
-                        neighbor_updates_count += 1_usize;
-                        any_update_was_in_open_set_set |= is_in_open_set;
-                    } else {
-                        neighbor_updates.push(NeighborUpdate {
-                            cost_is_lower: false,
-                            is_in_open_set: false,
-                        });
-                    }
-                }
-
-                if any_update_was_in_open_set_set {
-                    // Convert to a vec first, add the new elements, then convert back, so that we
-                    // don't waste time during `push` operations only to have that effort ignored
-                    // when converting back to a heap
-                    let mut open_set_elements: Vec<OpenSetElement<Self::Vertex, Self::Cost>> =
-                        take(&mut open_set_heap).into_vec();
-
-                    let old_element_count: usize = open_set_elements.len();
-
-                    for (
-                        open_set_element,
-                        NeighborUpdate {
-                            cost_is_lower,
-                            is_in_open_set,
-                        },
-                    ) in neighbors.drain(..).zip(neighbor_updates.drain(..))
-                    {
-                        if cost_is_lower {
-                            if is_in_open_set {
-                                if let Some(OpenSetElement(_, start_to_neighbor)) =
-                                    open_set_elements[..old_element_count].iter_mut().find(
-                                        |OpenSetElement(vertex, _)| *vertex == open_set_element.0,
-                                    )
-                                {
-                                    *start_to_neighbor = open_set_element.1;
-                                }
-                            } else {
-                                open_set_elements.push(open_set_element);
-                            }
-                        }
-                    }
-
-                    open_set_heap = open_set_elements.into();
-                } else if neighbor_updates_count > 0_usize {
-                    open_set_heap.extend(
-                        neighbors
-                            .drain(..)
-                            .zip(neighbor_updates.drain(..))
-                            .filter_map(|(open_set_element, neighbor_update)| {
-                                if neighbor_update.cost_is_lower {
-                                    Some(open_set_element)
-                                } else {
-                                    None
-                                }
-                            }),
-                    );
-                }
-
-                neighbors.clear();
-                neighbor_updates.clear();
-            }
-        }
-
-        None
+    fn run_dijkstra(&mut self) -> Option<Vec<Self::Vertex>> {
+        self.run_dijkstra_internal(&mut WeightedGraphSearchState::default())
     }
 }
 
@@ -624,153 +507,308 @@ pub trait JumpFloodingAlgorithm {
     }
 }
 
-pub trait AdditionalCliqueStateTrait: Clone + Default {
-    /// Returns whether or not this is still a valid clique.
-    fn is_valid(&self) -> bool;
-
-    /// Returns `Greater` if `self` is more "maximal", etc.
-    fn maximal_cmp(&self, other: &Self) -> Ordering;
-
-    /// Returns whether `maximal_cmp` always returns `Equal`.
-    fn maximal_cmp_always_returns_equal(&self) -> bool;
-}
-
 #[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Default)]
-pub struct CliqueState<BA, A> {
+#[derive(Clone, Default)]
+pub struct CliqueState<BA, UCS> {
     pub clique: BA,
-    pub clique_cardinality: usize,
-    pub additional_clique_state: A,
+    pub user_clique_state: UCS,
 }
 
 #[derive(Default)]
-struct StackState<BA, A> {
+struct StackState<BA, UCS> {
     neighbors: BA,
     vertex_index: usize,
-    additional_clique_state: A,
+    user_clique_state: UCS,
 }
 
-impl<BS: BitStore, BO: BitOrder, BA: Deref<Target = BitSlice<BS, BO>>, A> StackState<BA, A> {
+impl<BS: BitStore, BO: BitOrder, BA: Deref<Target = BitSlice<BS, BO>>, UCS> StackState<BA, UCS> {
     fn next_neighbor_vertex_index(&self) -> usize {
         self.vertex_index + self.neighbors[self.vertex_index..].leading_zeros()
     }
-
-    fn neighbor_cardinality(&self) -> usize {
-        self.neighbors[self.vertex_index..].count_ones()
-    }
 }
 
-pub trait MaximumClique<BS = usize, BO = Lsb0>
+pub struct CliqueIterator<BA, UCS, UCI, BS = usize, BO = Lsb0>
 where
-    BS: BitStore,
-    BO: BitOrder,
-{
-    type BitArray: for<'b> BitAndAssign<&'b Self::BitArray>
+    BA: for<'b> BitAndAssign<&'b BA>
         + Clone
         + Default
         + Deref<Target = BitSlice<BS, BO>>
-        + DerefMut;
-    type AdditionalCliqueState: AdditionalCliqueStateTrait;
+        + DerefMut,
+    UCS: Clone + Default,
+    UCI: UserCliqueIteratorTrait<BS, BO, BitArray = BA, UserCliqueState = UCS>,
+    BS: BitStore,
+    BO: BitOrder,
+{
+    clique: BA,
+    stack: Vec<StackState<BA, UCS>>,
+    pub user_clique_iterator: UCI,
+}
 
-    fn vertex_count(&self) -> usize;
-    fn integrate_vertex(
-        &self,
-        additional_clique_state: &mut Self::AdditionalCliqueState,
-        vertex_index: usize,
-    );
-    fn get_neighbors(&self, vertex_index: usize) -> &Self::BitArray;
-    fn run(&self) -> CliqueState<Self::BitArray, Self::AdditionalCliqueState> {
-        let vertex_count: usize = self.vertex_count();
-        let mut maximal_clique_state: CliqueState<Self::BitArray, Self::AdditionalCliqueState> =
-            CliqueState::default();
-        let mut clique: Self::BitArray = Default::default();
-        let mut clique_cardinality: usize = 0_usize;
-        let mut neighbors: Self::BitArray = Default::default();
+impl<BA, UCS, UCI, BS, BO> CliqueIterator<BA, UCS, UCI, BS, BO>
+where
+    BA: for<'b> BitAndAssign<&'b BA>
+        + Clone
+        + Default
+        + Deref<Target = BitSlice<BS, BO>>
+        + DerefMut,
+    UCS: Clone + Default,
+    UCI: UserCliqueIteratorTrait<BS, BO, BitArray = BA, UserCliqueState = UCS>,
+    BS: BitStore,
+    BO: BitOrder,
+{
+    pub fn reset(&mut self) {
+        let mut neighbors: BA = Default::default();
 
-        neighbors[..vertex_count].fill(true);
+        neighbors[..self.user_clique_iterator.vertex_count()].fill(true);
+        self.stack.clear();
+        self.stack.push(StackState {
+            neighbors,
+            ..Default::default()
+        });
+    }
+}
 
-        let mut stack: Vec<StackState<Self::BitArray, Self::AdditionalCliqueState>> =
-            vec![StackState {
-                neighbors,
-                ..Default::default()
-            }];
+impl<BA, UCS, UCI, BS, BO> From<UCI> for CliqueIterator<BA, UCS, UCI, BS, BO>
+where
+    BA: for<'b> BitAndAssign<&'b BA>
+        + Clone
+        + Default
+        + Deref<Target = BitSlice<BS, BO>>
+        + DerefMut,
+    UCS: Clone + Default,
+    UCI: UserCliqueIteratorTrait<BS, BO, BitArray = BA, UserCliqueState = UCS>,
+    BS: BitStore,
+    BO: BitOrder,
+{
+    fn from(user_clique_iterator: UCI) -> Self {
+        let mut clique_iterator: Self = Self {
+            clique: Default::default(),
+            stack: Vec::new(),
+            user_clique_iterator,
+        };
 
-        while let Some(stack_state) = stack.last_mut() {
+        clique_iterator.reset();
+
+        clique_iterator
+    }
+}
+
+impl<BA, UCS, UCI, BS, BO> Iterator for CliqueIterator<BA, UCS, UCI, BS, BO>
+where
+    BA: for<'b> BitAndAssign<&'b BA>
+        + Clone
+        + Default
+        + Deref<Target = BitSlice<BS, BO>>
+        + DerefMut,
+    UCS: Clone + Default,
+    UCI: UserCliqueIteratorTrait<BS, BO, BitArray = BA, UserCliqueState = UCS>,
+    BS: BitStore,
+    BO: BitOrder,
+{
+    type Item = CliqueState<BA, UCS>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut next: Option<Self::Item> = None;
+
+        let vertex_count: usize = self.user_clique_iterator.vertex_count();
+
+        while let Some(stack_state) = next.is_none().then(|| self.stack.last_mut()).flatten() {
             let vertex_index: usize = stack_state.vertex_index;
 
             if vertex_index >= vertex_count {
-                stack.pop();
-            } else if clique[vertex_index] {
-                clique.set(vertex_index, false);
-                clique_cardinality -= 1_usize;
+                // We've visited all vertices for this stack frame.
+                self.stack.pop();
+            } else if self.clique[vertex_index] {
+                // We just visited this vertex, move on to the next one for the stack frame.
+                self.clique.set(vertex_index, false);
                 stack_state.vertex_index += 1_usize;
                 stack_state.vertex_index = stack_state.next_neighbor_vertex_index();
             } else {
                 let next_neighbor_vertex_index: usize = stack_state.next_neighbor_vertex_index();
 
                 if next_neighbor_vertex_index > vertex_index {
+                    // We're not currently at the correct vertex, just update the vertex index and
+                    // do another pass so that we can easily catch the case where there are no more
+                    // valid neighbors for this stack frame.
                     stack_state.vertex_index = next_neighbor_vertex_index;
                 } else {
-                    clique.set(vertex_index, true);
-                    clique_cardinality += 1_usize;
+                    self.clique.set(vertex_index, true);
+                    stack_state.neighbors.set(vertex_index, false);
 
-                    let mut additional_clique_state: Self::AdditionalCliqueState =
-                        stack_state.additional_clique_state.clone();
+                    let mut user_clique_state: UCS = stack_state.user_clique_state.clone();
 
-                    self.integrate_vertex(&mut additional_clique_state, vertex_index);
+                    self.user_clique_iterator.integrate_vertex(
+                        vertex_index,
+                        &self.clique,
+                        &mut user_clique_state,
+                    );
 
-                    if additional_clique_state.is_valid() {
-                        if clique_cardinality
-                            .cmp(&maximal_clique_state.clique_cardinality)
-                            .then_with(|| {
-                                additional_clique_state
-                                    .maximal_cmp(&maximal_clique_state.additional_clique_state)
-                            })
-                            .is_gt()
-                        {
-                            maximal_clique_state = CliqueState {
-                                clique: clique.clone(),
-                                clique_cardinality,
-                                additional_clique_state: additional_clique_state.clone(),
-                            };
-                        }
-
-                        let mut next_stack_state: StackState<
-                            Self::BitArray,
-                            Self::AdditionalCliqueState,
-                        > = StackState {
-                            neighbors: stack_state.neighbors.clone(),
-                            vertex_index: vertex_index + 1_usize,
-                            additional_clique_state,
+                    if self
+                        .user_clique_iterator
+                        .is_clique_state_valid(&self.clique, &user_clique_state)
+                    {
+                        let clique_state: CliqueState<BA, UCS> = CliqueState {
+                            clique: self.clique.clone(),
+                            user_clique_state: user_clique_state.clone(),
                         };
 
-                        next_stack_state
-                            .neighbors
-                            .bitand_assign(self.get_neighbors(vertex_index));
-                        next_stack_state.vertex_index =
-                            next_stack_state.next_neighbor_vertex_index();
+                        self.user_clique_iterator.visit_clique(&clique_state);
 
-                        if (clique_cardinality + next_stack_state.neighbor_cardinality())
-                            .cmp(&maximal_clique_state.clique_cardinality)
-                            .then_with(|| {
-                                if next_stack_state
-                                    .additional_clique_state
-                                    .maximal_cmp_always_returns_equal()
-                                {
-                                    Ordering::Equal
-                                } else {
-                                    Ordering::Greater
-                                }
-                            })
-                            .is_gt()
-                        {
-                            stack.push(next_stack_state);
+                        next = Some(clique_state);
+
+                        let mut neighbors: BA = Default::default();
+
+                        self.user_clique_iterator.get_neighbors(
+                            vertex_index,
+                            &self.clique,
+                            &user_clique_state,
+                            &mut neighbors,
+                        );
+
+                        neighbors.bitand_assign(&stack_state.neighbors);
+
+                        if self.user_clique_iterator.should_visit_neighbors(
+                            &self.clique,
+                            &user_clique_state,
+                            &neighbors,
+                        ) {
+                            let mut next_stack_state: StackState<BA, UCS> = StackState {
+                                neighbors,
+                                vertex_index: vertex_index + 1_usize,
+                                user_clique_state,
+                            };
+
+                            next_stack_state.vertex_index =
+                                next_stack_state.next_neighbor_vertex_index();
+
+                            self.stack.push(next_stack_state);
                         }
                     }
                 }
             }
         }
 
-        maximal_clique_state
+        next
+    }
+}
+
+pub trait UserCliqueIteratorTrait<BS = usize, BO = Lsb0>
+where
+    BS: BitStore,
+    BO: BitOrder,
+    Self: Sized,
+{
+    type BitArray: for<'b> BitAndAssign<&'b Self::BitArray>
+        + Clone
+        + Default
+        + Deref<Target = BitSlice<BS, BO>>
+        + DerefMut;
+    type UserCliqueState: Clone + Default;
+
+    fn iter(self) -> CliqueIterator<Self::BitArray, Self::UserCliqueState, Self, BS, BO> {
+        self.into()
+    }
+
+    fn vertex_count(&self) -> usize;
+
+    // `vertex_index` is already set in `clique`.
+    fn integrate_vertex(
+        &self,
+        vertex_index: usize,
+        clique: &Self::BitArray,
+        inout_user_clique_state: &mut Self::UserCliqueState,
+    );
+
+    fn is_clique_state_valid(
+        &self,
+        clique: &Self::BitArray,
+        user_clique_state: &Self::UserCliqueState,
+    ) -> bool;
+
+    fn visit_clique(&mut self, clique_state: &CliqueState<Self::BitArray, Self::UserCliqueState>);
+
+    // `vertex_index` is already set in `clique`.
+    fn get_neighbors(
+        &self,
+        vertex_index: usize,
+        clique: &Self::BitArray,
+        user_clique_state: &Self::UserCliqueState,
+        out_neighbors: &mut Self::BitArray,
+    );
+
+    fn should_visit_neighbors(
+        &self,
+        clique: &Self::BitArray,
+        user_clique_state: &Self::UserCliqueState,
+        neighbors: &Self::BitArray,
+    ) -> bool;
+}
+
+pub struct KahnState<V> {
+    pub list: Vec<V>,
+    set: VecDeque<V>,
+    neighbors: Vec<V>,
+}
+
+impl<V> Default for KahnState<V> {
+    fn default() -> Self {
+        Self {
+            list: Default::default(),
+            set: Default::default(),
+            neighbors: Default::default(),
+        }
+    }
+}
+
+/// An implementation of [Kahn's Algorithm][kahn] for producing a topological sort of a DAG.
+///
+/// [kahn]: https://en.wikipedia.org/wiki/Topological_sorting#Kahn%27s_algorithm
+pub trait Kahn {
+    type Vertex: Clone;
+
+    fn populate_initial_set(&self, initial_set: &mut VecDeque<Self::Vertex>);
+    fn out_neighbors(&self, vertex: &Self::Vertex, neighbors: &mut Vec<Self::Vertex>);
+    fn remove_edge(&mut self, from: &Self::Vertex, to: &Self::Vertex);
+    fn has_in_neighbors(&self, vertex: &Self::Vertex) -> bool;
+    fn any_edges_exist(&self) -> bool;
+    fn reset(&mut self);
+    fn order_set(&self, set: &mut VecDeque<Self::Vertex>);
+
+    fn run_internal(&mut self, state: &mut KahnState<Self::Vertex>) -> bool {
+        state.list.clear();
+        state.set.clear();
+        state.neighbors.clear();
+
+        self.reset();
+        self.populate_initial_set(&mut state.set);
+
+        while let Some(vertex) = state.set.pop_front() {
+            state.list.push(vertex.clone());
+            state.neighbors.clear();
+            self.out_neighbors(&vertex, &mut state.neighbors);
+
+            let mut pushed_into_set: bool = false;
+
+            for neighbor in state.neighbors.drain(..) {
+                self.remove_edge(&vertex, &neighbor);
+
+                if !self.has_in_neighbors(&neighbor) {
+                    state.set.push_back(neighbor);
+                    pushed_into_set = true;
+                }
+            }
+
+            if pushed_into_set {
+                self.order_set(&mut state.set);
+            }
+        }
+
+        !self.any_edges_exist()
+    }
+
+    fn run(&mut self) -> Option<Vec<Self::Vertex>> {
+        let mut state: KahnState<Self::Vertex> = KahnState::default();
+
+        self.run_internal(&mut state).then_some(state.list)
     }
 }

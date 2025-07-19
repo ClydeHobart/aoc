@@ -59,7 +59,7 @@ impl Room {
     }
 
     fn real_name(&self) -> String {
-        let letter_count: u8 = LetterCounts::LEN as u8;
+        let letter_count: u8 = LETTER_COUNT as u8;
         let shift: u8 = (self.sector_id % letter_count as u32) as u8;
 
         self.encrypted_name

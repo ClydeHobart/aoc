@@ -15,13 +15,11 @@ pub struct Grid3D<T> {
 }
 
 pub fn manhattan_magnitude_3d(pos: &IVec3) -> i32 {
-    let abs: IVec3 = pos.abs();
-
-    abs.x + abs.y + abs.z
+    pos.manhattan_magnitude()
 }
 
 pub fn manhattan_distance_3d(a: &IVec3, b: &IVec3) -> i32 {
-    manhattan_magnitude_3d(&(*a - *b))
+    a.manhattan_distance(*b)
 }
 
 pub fn sanitize_dir_3d(dir: &mut IVec3) {

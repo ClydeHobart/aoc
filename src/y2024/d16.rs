@@ -216,7 +216,7 @@ impl<'s> ReindeerPathFinder<'s> {
     }
 }
 
-impl<'s> Dijkstra for ReindeerPathFinder<'s> {
+impl<'s> WeightedGraphSearch for ReindeerPathFinder<'s> {
     type Vertex = SmallPosAndDir;
 
     type Cost = u32;
@@ -237,6 +237,10 @@ impl<'s> Dijkstra for ReindeerPathFinder<'s> {
         self.child_to_parent_data
             .get(vertex)
             .map_or(u32::MAX, |parent_data| parent_data.cost)
+    }
+
+    fn heuristic(&self, vertex: &Self::Vertex) -> Self::Cost {
+        zero_heuristic::<Self>(self, vertex)
     }
 
     fn neighbors(
@@ -280,7 +284,13 @@ impl<'s> Dijkstra for ReindeerPathFinder<'s> {
         );
     }
 
-    fn update_vertex(&mut self, from: &Self::Vertex, to: &Self::Vertex, cost: Self::Cost) {
+    fn update_vertex(
+        &mut self,
+        from: &Self::Vertex,
+        to: &Self::Vertex,
+        cost: Self::Cost,
+        _heuristic: Self::Cost,
+    ) {
         self.child_to_parent_data.insert(
             *to,
             ParentData {
@@ -422,7 +432,7 @@ impl Solution {
     fn run_reindeer_path_finder(&self) -> ReindeerPathFinder {
         let mut reindeer_path_finder: ReindeerPathFinder = ReindeerPathFinder::new(self);
 
-        reindeer_path_finder.run();
+        reindeer_path_finder.run_dijkstra();
 
         reindeer_path_finder
     }

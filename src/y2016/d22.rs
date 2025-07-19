@@ -199,7 +199,7 @@ struct MoveSequenceFinder<'s> {
     node_data_map: HashMap<GraphNode, GraphNodeData>,
 }
 
-impl<'s> AStar for MoveSequenceFinder<'s> {
+impl<'s> WeightedGraphSearch for MoveSequenceFinder<'s> {
     type Vertex = GraphNode;
     type Cost = i32;
 
@@ -320,7 +320,7 @@ impl SimpleGrid {
             node_data_map: HashMap::new(),
         };
 
-        move_sequence_finder.run()
+        move_sequence_finder.run_a_star()
     }
 }
 

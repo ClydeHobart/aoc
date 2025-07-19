@@ -152,10 +152,6 @@ struct Neighbor<P: ParamsTrait> {
     vacant_cell_indices: <P as ParamsTrait>::CellIndexBitArray,
 }
 
-trait NeighborMapTrait {
-    type OnceLock;
-}
-
 struct NeighborMap<P: ParamsTrait> {
     neighbors: Vec<Neighbor<P>>,
     neighbor_ranges: Vec<Range<u16>>,
@@ -461,7 +457,7 @@ where
     fn try_organize_amphipods_astar(self) -> Option<(Vec<Self>, u32)> {
         let mut result: OrganizeAmphipodsResult<SIDE_ROOM_LEN> = Default::default();
 
-        AStar::run(&mut OrganizeAmphipods {
+        WeightedGraphSearch::run_a_star(&mut OrganizeAmphipods {
             start: self,
             result: &mut result,
         })
@@ -472,7 +468,7 @@ where
     fn try_organize_amphipods_dijkstra(self) -> Option<(Vec<Self>, u32)> {
         let mut result: OrganizeAmphipodsResult<SIDE_ROOM_LEN> = Default::default();
 
-        Dijkstra::run(&mut OrganizeAmphipods {
+        WeightedGraphSearch::run_dijkstra(&mut OrganizeAmphipods {
             start: self,
             result: &mut result,
         })
@@ -1138,7 +1134,7 @@ where
     }
 }
 
-impl<'r, const SIDE_ROOM_LEN: usize> AStar for OrganizeAmphipods<'r, SIDE_ROOM_LEN>
+impl<'r, const SIDE_ROOM_LEN: usize> WeightedGraphSearch for OrganizeAmphipods<'r, SIDE_ROOM_LEN>
 where
     PositionState<SIDE_ROOM_LEN>: ParamsTrait,
 {
@@ -1180,47 +1176,6 @@ where
         cost: Self::Cost,
         _heuristic: Self::Cost,
     ) {
-        self.update_vertex(from, to, cost);
-    }
-
-    fn reset(&mut self) {
-        self.reset();
-    }
-}
-
-impl<'r, const SIDE_ROOM_LEN: usize> Dijkstra for OrganizeAmphipods<'r, SIDE_ROOM_LEN>
-where
-    PositionState<SIDE_ROOM_LEN>: ParamsTrait,
-{
-    type Vertex = PositionState<SIDE_ROOM_LEN>;
-
-    type Cost = u32;
-
-    fn start(&self) -> &Self::Vertex {
-        self.start()
-    }
-
-    fn is_end(&self, vertex: &Self::Vertex) -> bool {
-        self.is_end(vertex)
-    }
-
-    fn path_to(&self, vertex: &Self::Vertex) -> Vec<Self::Vertex> {
-        self.path_to(vertex)
-    }
-
-    fn cost_from_start(&self, vertex: &Self::Vertex) -> Self::Cost {
-        self.cost_from_start(vertex)
-    }
-
-    fn neighbors(
-        &self,
-        vertex: &Self::Vertex,
-        neighbors: &mut Vec<OpenSetElement<Self::Vertex, Self::Cost>>,
-    ) {
-        self.neighbors(vertex, neighbors)
-    }
-
-    fn update_vertex(&mut self, from: &Self::Vertex, to: &Self::Vertex, cost: Self::Cost) {
         self.update_vertex(from, to, cost);
     }
 

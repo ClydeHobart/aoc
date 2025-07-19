@@ -4,6 +4,7 @@ use {crate::*, glam::IVec2, std::fmt::Debug};
 #[cfg_attr(test, derive(PartialEq))]
 struct Height(u8);
 
+#[allow(dead_code)]
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct CharIsNotAsciiDigit(char);

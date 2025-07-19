@@ -343,6 +343,8 @@ trait HasVisitedGrid {
 
     fn visit<I: Iterator<Item = Self::State>>(&mut self, state_iter: I);
     fn count_visited(&self, index: usize) -> usize;
+
+    #[cfg(test)]
     fn count_tails(&self) -> usize;
 }
 
@@ -364,6 +366,7 @@ impl<const N: usize> HasVisitedGrid for Grid2D<HasVisited<N>> {
             .count()
     }
 
+    #[cfg(test)]
     fn count_tails(&self) -> usize {
         self.count_visited(HasVisited::<N>::TAIL)
     }

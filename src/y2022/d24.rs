@@ -328,7 +328,7 @@ impl BlizzardGrid3D {
             start,
             end,
         }
-        .run()
+        .run_a_star()
     }
 
     fn fill_out_period(&mut self) {
@@ -552,7 +552,7 @@ struct ExpeditionPathSearch<'b> {
     end: IVec2,
 }
 
-impl<'b> AStar for ExpeditionPathSearch<'b> {
+impl<'b> WeightedGraphSearch for ExpeditionPathSearch<'b> {
     type Vertex = IVec3;
     type Cost = i32;
 

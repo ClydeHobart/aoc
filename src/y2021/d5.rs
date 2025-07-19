@@ -146,6 +146,7 @@ impl Solution {
     }
 
     fn grid_to_string(mut grid: Grid2D<u8>) -> String {
+        #[allow(dead_code)]
         struct Cell(u8);
 
         // SAFETY: The size constraint is trivial, and the values are constructed to be in the set

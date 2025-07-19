@@ -48,7 +48,7 @@ struct MinimalHeatLossPathFinder<'s> {
     straight_line_len_range: Range<i32>,
 }
 
-impl<'s> AStar for MinimalHeatLossPathFinder<'s> {
+impl<'s> WeightedGraphSearch for MinimalHeatLossPathFinder<'s> {
     type Vertex = Vertex;
     type Cost = u32;
 
@@ -172,6 +172,7 @@ impl<'s> AStar for MinimalHeatLossPathFinder<'s> {
     }
 }
 
+#[allow(dead_code)]
 struct PathGridCell(u8);
 
 impl Default for PathGridCell {
@@ -241,7 +242,7 @@ impl Solution {
     ) -> Option<(Grid2D<PathGridCell>, u32)> {
         let mut minimal_heat_loss_path_finder: MinimalHeatLossPathFinder = path_finder(self);
 
-        let path: Option<Vec<Vertex>> = minimal_heat_loss_path_finder.run();
+        let path: Option<Vec<Vertex>> = minimal_heat_loss_path_finder.run_a_star();
 
         path.map(|path| {
             let cost: u32 = minimal_heat_loss_path_finder
@@ -287,7 +288,7 @@ impl Solution {
     ) -> Option<u32> {
         let mut minimal_heat_loss_path_finder: MinimalHeatLossPathFinder = path_finder(self);
 
-        let path: Option<Vec<Vertex>> = minimal_heat_loss_path_finder.run();
+        let path: Option<Vec<Vertex>> = minimal_heat_loss_path_finder.run_a_star();
 
         path.map(|path| {
             minimal_heat_loss_path_finder

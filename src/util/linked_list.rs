@@ -50,7 +50,7 @@ impl<Data: LinkedListDataTrait, Index: IndexRawTrait> Default for LinkedListNode
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Default)]
-pub struct LinkedList<Data: LinkedListDataTrait, IndexRaw: IndexRawTrait> {
+pub struct LinkedList<Data: LinkedListDataTrait, IndexRaw: IndexRawTrait = usize> {
     nodes: Vec<LinkedListNode<Data, IndexRaw>>,
     head: Index<IndexRaw>,
     tail: Index<IndexRaw>,

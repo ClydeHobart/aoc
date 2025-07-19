@@ -10,7 +10,7 @@ use {
         sequence::separated_pair,
         Err, IResult,
     },
-    std::{cmp::Ordering, ops::BitAnd},
+    std::ops::BitAnd,
 };
 
 /* --- Day 23: LAN Party ---
@@ -124,19 +124,82 @@ type ComputerIdSet = Set<ComputerId>;
 type ComputerIndexSet = Set<ComputerIndex>;
 
 #[derive(Clone, Default)]
-pub struct LanPartyAdditionalCliqueState;
+pub struct LanPartyUserCliqueState {
+    clique_cardinality: usize,
+}
 
-impl AdditionalCliqueStateTrait for LanPartyAdditionalCliqueState {
-    fn is_valid(&self) -> bool {
+type LanPartyCliqueState = CliqueState<ComputersBitArray, LanPartyUserCliqueState>;
+
+struct UserCliqueIterator<'s> {
+    solution: &'s Solution,
+    maximum_clique_state: Option<LanPartyCliqueState>,
+}
+
+impl<'s> UserCliqueIteratorTrait for UserCliqueIterator<'s> {
+    type BitArray = ComputersBitArray;
+
+    type UserCliqueState = LanPartyUserCliqueState;
+
+    fn vertex_count(&self) -> usize {
+        self.solution.computers.as_slice().len()
+    }
+
+    fn integrate_vertex(
+        &self,
+        _vertex_index: usize,
+        _clique: &Self::BitArray,
+        inout_user_clique_state: &mut Self::UserCliqueState,
+    ) {
+        inout_user_clique_state.clique_cardinality += 1_usize;
+    }
+
+    fn is_clique_state_valid(
+        &self,
+        _clique: &Self::BitArray,
+        _user_clique_state: &Self::UserCliqueState,
+    ) -> bool {
         true
     }
 
-    fn maximal_cmp(&self, _other: &Self) -> Ordering {
-        Ordering::Equal
+    fn visit_clique(&mut self, clique_state: &CliqueState<Self::BitArray, Self::UserCliqueState>) {
+        if self
+            .maximum_clique_state
+            .as_ref()
+            .map(|maximum_clique_state| {
+                maximum_clique_state.user_clique_state.clique_cardinality
+                    < clique_state.user_clique_state.clique_cardinality
+            })
+            .unwrap_or(true)
+        {
+            self.maximum_clique_state = Some(clique_state.clone());
+        }
     }
 
-    fn maximal_cmp_always_returns_equal(&self) -> bool {
-        true
+    fn get_neighbors(
+        &self,
+        vertex_index: usize,
+        _clique: &Self::BitArray,
+        _user_clique_state: &Self::UserCliqueState,
+        out_neighbors: &mut Self::BitArray,
+    ) {
+        *out_neighbors = self.solution.computers.as_slice()[vertex_index]
+            .data
+            .connections;
+    }
+
+    fn should_visit_neighbors(
+        &self,
+        _clique: &Self::BitArray,
+        user_clique_state: &Self::UserCliqueState,
+        neighbors: &Self::BitArray,
+    ) -> bool {
+        self.maximum_clique_state
+            .as_ref()
+            .map(|maximum_clique_state| {
+                user_clique_state.clique_cardinality + neighbors.count_ones()
+                    > maximum_clique_state.user_clique_state.clique_cardinality
+            })
+            .unwrap_or(true)
     }
 }
 
@@ -239,38 +302,31 @@ impl Solution {
     }
 
     fn lan_party_password(&self) -> String {
-        self.run()
-            .clique
-            .iter_ones()
-            .enumerate()
-            .flat_map(|(clique_index, computer_index)| {
-                [
-                    if clique_index > 0_usize { "," } else { "" },
-                    self.computers.as_slice()[computer_index].id.as_str(),
-                ]
+        let mut iterator = UserCliqueIterator {
+            solution: self,
+            maximum_clique_state: None,
+        }
+        .iter();
+
+        (&mut iterator).for_each(|_| ());
+
+        iterator
+            .user_clique_iterator
+            .maximum_clique_state
+            .map(|maximum_clique_state| {
+                maximum_clique_state
+                    .clique
+                    .iter_ones()
+                    .enumerate()
+                    .flat_map(|(clique_index, computer_index)| {
+                        [
+                            if clique_index > 0_usize { "," } else { "" },
+                            self.computers.as_slice()[computer_index].id.as_str(),
+                        ]
+                    })
+                    .collect()
             })
-            .collect()
-    }
-}
-
-impl MaximumClique for Solution {
-    type BitArray = ComputersBitArray;
-
-    type AdditionalCliqueState = LanPartyAdditionalCliqueState;
-
-    fn vertex_count(&self) -> usize {
-        self.computers.as_slice().len()
-    }
-
-    fn integrate_vertex(
-        &self,
-        _additional_clique_state: &mut Self::AdditionalCliqueState,
-        _vertex_index: usize,
-    ) {
-    }
-
-    fn get_neighbors(&self, vertex_index: usize) -> &Self::BitArray {
-        &self.computers.as_slice()[vertex_index].data.connections
+            .unwrap_or_default()
     }
 }
 
@@ -328,6 +384,7 @@ impl RunQuestions for Solution {
 
     /// Honestly really surprised I got this one on the first try.
     fn q2_internal(&mut self, _args: &QuestionArgs) {
+        dbg!(self.lan_party_password());
         dbg!(self.lan_party_password());
     }
 }

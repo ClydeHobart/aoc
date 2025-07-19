@@ -103,7 +103,7 @@ impl Solution {
         &'f self,
         f: F,
         verbose: bool,
-    ) -> impl Iterator<Item = T> + '_ {
+    ) -> impl Iterator<Item = T> + 'f {
         let mut string: String = self.0.clone();
         let mut index: u32 = 0_u32;
 

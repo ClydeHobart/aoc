@@ -202,7 +202,7 @@ struct PathFinder<'s> {
     prev_map: HashMap<IVec2, PrevState>,
 }
 
-impl<'s> AStar for PathFinder<'s> {
+impl<'s> WeightedGraphSearch for PathFinder<'s> {
     type Vertex = IVec2;
     type Cost = i32;
 
@@ -337,7 +337,7 @@ impl Solution {
             prev_map: HashMap::new(),
         };
 
-        path_finder.run()
+        path_finder.run_a_star()
     }
 
     fn try_path(&self) -> Option<Vec<IVec2>> {

@@ -78,7 +78,7 @@ struct MinimalTotalRiskPathFinder<'s> {
     finder_grid: Grid2D<FinderCell>,
 }
 
-impl<'s> AStar for MinimalTotalRiskPathFinder<'s> {
+impl<'s> WeightedGraphSearch for MinimalTotalRiskPathFinder<'s> {
     type Vertex = IVec2;
     type Cost = u32;
 
@@ -164,7 +164,7 @@ impl Solution {
             solution: self,
             finder_grid: Grid2D::default(self.dimensions()),
         }
-        .run()
+        .run_a_star()
         .map(|path: Vec<IVec2>| {
             let total_risk: u32 = path
                 .iter()

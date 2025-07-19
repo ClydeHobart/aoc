@@ -176,7 +176,7 @@ impl<'c> CorruptedLocationPathFinder<'c> {
     }
 }
 
-impl<'c> AStar for CorruptedLocationPathFinder<'c> {
+impl<'c> WeightedGraphSearch for CorruptedLocationPathFinder<'c> {
     type Vertex = IVec2;
 
     type Cost = i32;
@@ -305,7 +305,7 @@ impl Solution {
     ) -> Option<Vec<IVec2>> {
         CorruptedLocationPathFinder::try_new(&corrupted_locations, dimensions, start, end)
             .map(|mut corrupted_location_path_finder| {
-                corrupted_location_path_finder.run();
+                corrupted_location_path_finder.run_a_star();
 
                 corrupted_location_path_finder.try_start_to_end_path()
             })
@@ -393,7 +393,7 @@ impl Solution {
                         .map_or(
                             false,
                             |mut corrupted_location_path_finder| {
-                                corrupted_location_path_finder.run().is_none()
+                                corrupted_location_path_finder.run_a_star().is_none()
                             },
                         )
                     })

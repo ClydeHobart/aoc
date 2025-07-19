@@ -200,13 +200,6 @@ Of the first 100 bursts, 26 will result in infection. Unfortunately, another fea
 
 Given your actual map, after 10000000 bursts of activity, how many bursts cause a node to become infected? (Do not count nodes that begin infected.) */
 
-trait ComputeNodeTrait {
-    const CLEAN: Self;
-    const INFECTED: Self;
-
-    fn is_infected(self) -> bool;
-}
-
 define_cell! {
     #[repr(u8)]
     #[cfg_attr(test, derive(Debug))]

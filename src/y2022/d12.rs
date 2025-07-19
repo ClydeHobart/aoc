@@ -199,7 +199,7 @@ impl<'h> HeightGridAStarAscent<'h> {
     }
 }
 
-impl<'h> AStar for HeightGridAStarAscent<'h> {
+impl<'h> WeightedGraphSearch for HeightGridAStarAscent<'h> {
     type Vertex = IVec2;
     type Cost = usize;
 
@@ -352,7 +352,7 @@ pub struct Solution(HeightGrid);
 impl Solution {
     fn a_star_ascent(&self) -> Vec<IVec2> {
         HeightGridAStarAscent::new(&self.0)
-            .run()
+            .run_a_star()
             .unwrap_or_default()
     }
 
