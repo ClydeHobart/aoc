@@ -12,6 +12,7 @@ pub use {
     no_drop_vec::*,
     nom::{error::Error as NomError, Err as NomErr},
     pixel::Pixel,
+    r#break::*,
     region_tree::*,
     set_and_vec::*,
     static_string::*,
@@ -40,7 +41,6 @@ use {
         fmt::{Debug, Formatter, Result as FmtResult},
         fs::File,
         hash::{DefaultHasher, Hash, Hasher},
-        hint::black_box,
         io::{Error as IoError, ErrorKind, Result as IoResult},
         iter::from_fn,
         mem::{size_of, transmute, ManuallyDrop, MaybeUninit},
@@ -54,6 +54,7 @@ use {
 use std::rc::Rc;
 
 mod bit;
+mod r#break;
 mod graph;
 mod grid;
 mod imat3;
@@ -1614,16 +1615,6 @@ fn test_boxed_slice_from_array() {
     assert_eq!(Rc::strong_count(&rc), 1_usize);
 }
 
-pub fn debug_break() {
-    black_box(());
-}
-
-pub fn cond_debug_break(cond: bool) {
-    if cond {
-        debug_break();
-    }
-}
-
 pub fn option_from_poll<T>(poll: Poll<T>) -> Option<T> {
     match poll {
         Poll::Ready(value) => Some(value),
@@ -1635,67 +1626,5 @@ pub fn poll_from_option<T>(option: Option<T>) -> Poll<T> {
     match option {
         Some(value) => Poll::Ready(value),
         None => Poll::Pending,
-    }
-}
-
-pub fn add_break_on_overflow<I: PrimInt>(a: I, b: I) -> I {
-    match a.checked_add(&b) {
-        Some(sum) => sum,
-        None => {
-            panic!();
-        }
-    }
-}
-
-pub fn sub_break_on_overflow<I: PrimInt>(a: I, b: I) -> I {
-    match a.checked_sub(&b) {
-        Some(difference) => difference,
-        None => {
-            panic!();
-        }
-    }
-}
-
-pub fn mul_break_on_overflow<I: PrimInt>(a: I, b: I) -> I {
-    match a.checked_mul(&b) {
-        Some(product) => product,
-        None => {
-            panic!();
-        }
-    }
-}
-
-pub fn div_break_on_overflow<I: PrimInt>(a: I, b: I) -> I {
-    match a.checked_div(&b) {
-        Some(quotient) => quotient,
-        None => {
-            panic!();
-        }
-    }
-}
-
-pub fn assert_eq_break<T: Debug + PartialEq>(left: T, right: T) {
-    if left != right {
-        assert_eq!(left, right);
-    }
-}
-
-pub fn map_break<T>(value: T) -> T {
-    black_box(());
-
-    value
-}
-
-pub trait UnwrapBreak<T> {
-    fn unwrap_break(self) -> T;
-}
-
-impl<T> UnwrapBreak<T> for Option<T> {
-    fn unwrap_break(self) -> T {
-        if self.is_none() {
-            panic!()
-        } else {
-            self.unwrap()
-        }
     }
 }

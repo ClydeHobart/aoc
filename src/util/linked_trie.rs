@@ -341,6 +341,58 @@ impl<Key: LinkedTrieNodeKey, Value, Index: IndexTrait> LinkedTrie<Key, Value, In
         self.contains_keys_sorted_by(keys, Self::no_compare)
     }
 
+    pub fn find_child_node_index_sorted_by<F: FnMut(&Key, &Key) -> Ordering>(
+        &self,
+        key: &Key,
+        parent_node_index: Index,
+        mut compare: F,
+    ) -> Option<Index> {
+        let mut child_node_index: Index = self.get_child_node_index(parent_node_index);
+
+        while self
+            .try_get_node(child_node_index)
+            .map_or(false, |child_node| {
+                match compare(key, &child_node.kvp.key) {
+                    Ordering::Less => {
+                        child_node_index = Index::invalid();
+
+                        false
+                    }
+                    Ordering::Equal => false,
+                    Ordering::Greater => {
+                        child_node_index = child_node.state.next_sibling_node_index;
+
+                        true
+                    }
+                }
+            })
+        {}
+
+        child_node_index.opt()
+    }
+
+    pub fn find_child_node_index_sorted_by_other_key<K: Ord, F: FnMut(&Key) -> K>(
+        &self,
+        key: &Key,
+        parent_node_index: Index,
+        mut f: F,
+    ) -> Option<Index> {
+        self.find_child_node_index_sorted_by(key, parent_node_index, |key_a, key_b| {
+            f(key_a).cmp(&f(key_b))
+        })
+    }
+
+    pub fn find_child_node_index_sorted(&self, key: &Key, parent_node_index: Index) -> Option<Index>
+    where
+        Key: Ord,
+    {
+        self.find_child_node_index_sorted_by(key, parent_node_index, Key::cmp)
+    }
+
+    pub fn find_child_node_index(&self, key: &Key, parent_node_index: Index) -> Option<Index> {
+        self.find_child_node_index_sorted_by(key, parent_node_index, Self::no_compare)
+    }
+
     pub fn insert_sorted_by<I: IntoIterator<Item = Key>, F: FnMut(&Key, &Key) -> Ordering>(
         &mut self,
         keys: I,
@@ -523,32 +575,21 @@ impl<Key: LinkedTrieNodeKey, Value, Index: IndexTrait> LinkedTrie<Key, Value, In
         keys: &mut Peekable<I>,
         compare: &mut F,
     ) -> Result<Index, Index> {
-        let mut prev_node_index: Index = Index::invalid();
-        let mut curr_node_index: Index = self.root_node_index;
+        let mut node_index: Index = Index::invalid();
 
-        while curr_node_index.is_valid() && keys.peek().is_some() {
-            let curr_node: LinkedTrieNode<Key, Value, Index> =
-                self.try_get_node(curr_node_index).unwrap();
-
-            match compare(keys.peek().unwrap(), &curr_node.kvp.key) {
-                Ordering::Less => {
-                    curr_node_index = Index::invalid();
-                }
-                Ordering::Equal => {
-                    prev_node_index = curr_node_index;
-                    keys.next();
-                    curr_node_index = curr_node.state.child_node_index;
-                }
-                Ordering::Greater => {
-                    curr_node_index = curr_node.state.next_sibling_node_index;
-                }
-            }
+        while let Some(next_node_index) = keys.peek().and_then(|key| {
+            self.find_child_node_index_sorted_by(key, node_index, |key_a, key_b| {
+                compare(key_a, key_b)
+            })
+        }) {
+            keys.next();
+            node_index = next_node_index;
         }
 
         if keys.peek().is_none() {
-            Ok(prev_node_index)
+            Ok(node_index)
         } else {
-            Err(prev_node_index)
+            Err(node_index)
         }
     }
 
@@ -1342,16 +1383,5 @@ mod tests {
 
         test_remove_internal(LinkedTrie::remove);
         test_remove_internal(LinkedTrie::remove_sorted);
-    }
-
-    #[test]
-    fn test_map_dbg() {
-        use std::collections::HashMap;
-
-        let map: HashMap<u8, char> = [(1_u8, 'a'), (2_u8, 'b'), (3_u8, 'c')]
-            .into_iter()
-            .collect();
-
-        dbg!(map);
     }
 }

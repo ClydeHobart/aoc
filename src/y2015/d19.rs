@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(unused_imports, dead_code)]
 
 use {
     crate::*,
@@ -8,16 +8,23 @@ use {
         bytes::complete::{tag, take_while_m_n},
         character::complete::{line_ending, satisfy},
         combinator::{map, map_opt, success, verify},
-        error::Error,
+        error::Error as NomError,
         multi::{many1, separated_list1},
         sequence::tuple,
         Err, IResult,
     },
     std::{
-        collections::HashSet,
+        borrow::BorrowMut,
+        cell::{Ref, RefCell, RefMut},
+        collections::{HashMap, HashSet},
+        fmt::{
+            Debug, DebugList, Display, Error as FmtError, Formatter, Result as FmtResult, Write,
+        },
         hash::{DefaultHasher, Hash, Hasher},
+        iter::from_fn,
         ops::Range,
         str::from_utf8_unchecked,
+        sync::LazyLock,
     },
 };
 
@@ -91,7 +98,50 @@ struct ElementData {
 type Element = TableElement<ElementId, ElementData>;
 type ElementTable = Table<ElementId, ElementData, ElementIndexRaw>;
 
-type ElementListIndexRaw = u16;
+struct ElementIndexIter<'e, I: Clone + Iterator<Item = ElementIndex>> {
+    element_table: &'e ElementTable,
+    element_index_iter: I,
+}
+impl<'e, I: Clone + Iterator<Item = ElementIndex>> ElementIndexIter<'e, I> {
+    fn new(element_table: &'e ElementTable, element_index_iter: I) -> Self {
+        Self {
+            element_table,
+            element_index_iter,
+        }
+    }
+}
+
+impl<'e, I: Clone + Iterator<Item = ElementIndex>> Debug for ElementIndexIter<'e, I> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let mut debug_list: DebugList = f.debug_list();
+
+        for element_index in self.element_index_iter.clone() {
+            debug_list.entry(&element_index);
+        }
+
+        debug_list.finish()
+    }
+}
+
+impl<'e, I: Clone + Iterator<Item = ElementIndex>> Display for ElementIndexIter<'e, I> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        self.element_index_iter
+            .clone()
+            .try_for_each(|element_index| {
+                if element_index.is_valid() {
+                    element_index.fmt(f)
+                } else {
+                    f.write_str(
+                        self.element_table.as_slice()[element_index.get()]
+                            .id
+                            .as_str(),
+                    )
+                }
+            })
+    }
+}
+
+type ElementListIndexRaw = u32;
 type ElementListIndex = Index<ElementListIndexRaw>;
 
 type ElementListRange = Range<ElementListIndex>;
@@ -106,108 +156,348 @@ type ReplacementIndexRaw = u8;
 type ReplacementIndex = Index<ReplacementIndexRaw>;
 type ReplacementRange = Range<ReplacementIndex>;
 
-const MIN_REPLACEMENT_LEN: usize = 2_usize;
-const MAX_MOLECULE_LEN: usize = 300_usize;
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct FastestEReductionSearchVertex(u64);
 
-type InverseReplacementTrieNodeIndexRaw = u8;
-type InverseReplacementTrieNodeIndex = Index<InverseReplacementTrieNodeIndexRaw>;
+impl FastestEReductionSearchVertex {
+    fn invalid() -> Self {
+        static INVALID: LazyLock<FastestEReductionSearchVertex> = LazyLock::new(|| {
+            let element_list: &[ElementIndex] = &[];
 
-#[derive(Default)]
-struct InverseReplacementTrieNodeData {
-    replacing_element_index: ElementIndex,
-    replacement_index: ReplacementIndex,
-    child_node_index: InverseReplacementTrieNodeIndex,
-    sibling_node_index: InverseReplacementTrieNodeIndex,
+            element_list.into()
+        });
+
+        *INVALID
+    }
+
+    fn from_iter<I: Iterator<Item = ElementIndex>>(element_index_iter: I) -> Self {
+        let mut hasher: DefaultHasher = DefaultHasher::new();
+
+        for element_index in element_index_iter {
+            element_index.hash(&mut hasher);
+        }
+
+        Self(hasher.finish())
+    }
+
+    fn is_valid(self) -> bool {
+        self != Self::invalid()
+    }
 }
 
-struct InverseReplacementTrie(Vec<InverseReplacementTrieNodeData>);
+impl Default for FastestEReductionSearchVertex {
+    fn default() -> Self {
+        Self::invalid()
+    }
+}
 
-impl InverseReplacementTrie {
-    fn insert_replacing_element(
-        &mut self,
-        replacing_element_index: ElementIndex,
-        head_node_index: InverseReplacementTrieNodeIndex,
-    ) -> InverseReplacementTrieNodeIndex {
-        let is_empty: bool = self.0.is_empty();
-        let head_node_index_is_valid: bool = head_node_index.is_valid();
+impl From<&[ElementIndex]> for FastestEReductionSearchVertex {
+    fn from(value: &[ElementIndex]) -> Self {
+        Self::from_iter(value.iter().copied())
+    }
+}
 
-        assert!(!is_empty || !head_node_index_is_valid);
+type ReplacementCount = u16;
 
-        if is_empty || !head_node_index_is_valid {
-            let node_index: InverseReplacementTrieNodeIndex = self.0.len().into();
+#[derive(Clone)]
+struct FastestEReductionSearchVertexData {
+    element_list_range: ElementListRange,
+    replacement_location: ElementListIndex,
+    replacement_count: ReplacementCount,
+    replacement_index: ReplacementIndex,
+    prev_vertex: FastestEReductionSearchVertex,
+}
 
-            self.0.push(InverseReplacementTrieNodeData {
-                replacing_element_index,
-                ..Default::default()
-            });
+#[derive(Default)]
+struct FastestEReductionSearchMutableState {
+    element_list: Vec<ElementIndex>,
+    pending_element_list: Vec<ElementIndex>,
+    vertex_data_map: HashMap<FastestEReductionSearchVertex, FastestEReductionSearchVertexData>,
+}
 
-            node_index
+impl FastestEReductionSearchMutableState {
+    fn inverse_replacement_element_list<'e>(
+        element_list: &'e [ElementIndex],
+        solution: &Solution,
+        replacement_index: ReplacementIndex,
+        replacement_start_element_list_index: ElementListIndex,
+    ) -> (&'e [ElementIndex], ElementIndex, &'e [ElementIndex]) {
+        let replacement_data: &ReplacementData = &solution.replacements[replacement_index.get()];
+
+        let solution_replacement_element_list: &[ElementIndex] = &solution.element_list
+            [Solution::range_usize_from_range_index(&replacement_data.replacing_elements)];
+        let replacement_end_element_list_index: ElementListIndex =
+            (replacement_start_element_list_index.get() + solution_replacement_element_list.len())
+                .into();
+        let target_replacement_element_list: &[ElementIndex] = element_list
+            .get(
+                replacement_start_element_list_index.get()
+                    ..replacement_end_element_list_index.get(),
+            )
+            .unwrap();
+
+        assert_eq_break(
+            solution_replacement_element_list,
+            target_replacement_element_list,
+        );
+
+        (
+            &element_list[..replacement_start_element_list_index.get()],
+            replacement_data.replaced_element,
+            &element_list[replacement_end_element_list_index.get()..],
+        )
+    }
+}
+
+type InverseReplacementMapNodeIndexRaw = u16;
+type InverseReplacementMapNodeIndex = Index<InverseReplacementMapNodeIndexRaw>;
+
+struct FastestEReductionSearcher<'s> {
+    solution: &'s Solution,
+    e: ElementIndex,
+    start_vertex: FastestEReductionSearchVertex,
+    end_vertex: FastestEReductionSearchVertex,
+    inverse_replacement_map:
+        LinkedTrie<ElementIndex, ReplacementIndex, InverseReplacementMapNodeIndex>,
+    max_replacement_element_list_len_delta: ElementListIndex,
+    mutable_state: RefCell<FastestEReductionSearchMutableState>,
+}
+
+impl<'s> WeightedGraphSearch for FastestEReductionSearcher<'s> {
+    type Vertex = FastestEReductionSearchVertex;
+    type Cost = ReplacementCount;
+
+    fn start(&self) -> &Self::Vertex {
+        &self.start_vertex
+    }
+
+    fn is_end(&self, vertex: &Self::Vertex) -> bool {
+        let mutable_state: Ref<FastestEReductionSearchMutableState> = self.mutable_state.borrow();
+
+        mutable_state.element_list[Solution::range_usize_from_range_index(
+            &mutable_state.vertex_data_map[vertex].element_list_range,
+        )] == [self.e]
+    }
+
+    fn path_to(&self, _vertex: &Self::Vertex) -> Vec<Self::Vertex> {
+        Vec::new()
+    }
+
+    fn cost_from_start(&self, vertex: &Self::Vertex) -> Self::Cost {
+        self.mutable_state.borrow().vertex_data_map[vertex].replacement_count
+    }
+
+    fn heuristic(&self, vertex: &Self::Vertex) -> Self::Cost {
+        let element_list_len: usize = Solution::range_usize_from_range_index(
+            &self.mutable_state.borrow().vertex_data_map[vertex].element_list_range,
+        )
+        .len();
+        let remaining_replacement_len: usize = element_list_len - 1_usize;
+
+        if remaining_replacement_len == 0_usize {
+            0 as ReplacementCount
         } else {
-            let mut found_node: bool = false;
-            let mut prev_node_index: InverseReplacementTrieNodeIndex =
-                InverseReplacementTrieNodeIndex::invalid();
-            let mut curr_node_index: InverseReplacementTrieNodeIndex = head_node_index;
-
-            while !found_node && curr_node_index.is_valid() {
-                let node: &InverseReplacementTrieNodeData = &self.0[curr_node_index.get()];
-
-                found_node = node.replacing_element_index == replacing_element_index;
-                prev_node_index = curr_node_index;
-                curr_node_index = node.sibling_node_index;
-            }
-
-            if !found_node {
-                let sibling_node_index: InverseReplacementTrieNodeIndex = self.0.len().into();
-
-                self.0.push(InverseReplacementTrieNodeData {
-                    replacing_element_index,
-                    ..Default::default()
-                });
-
-                assert!(prev_node_index.is_valid());
-
-                self.0[prev_node_index.get()].sibling_node_index = sibling_node_index;
-
-                sibling_node_index
-            } else {
-                prev_node_index
-            }
+            ((remaining_replacement_len - 1_usize)
+                / self.max_replacement_element_list_len_delta.get()
+                + 1_usize) as ReplacementCount
         }
     }
 
-    fn insert_replacement(
-        &mut self,
-        replacement_index: ReplacementIndex,
-        replacing_elements: &[ElementIndex],
+    fn neighbors(
+        &self,
+        vertex: &Self::Vertex,
+        neighbors: &mut Vec<OpenSetElement<Self::Vertex, Self::Cost>>,
     ) {
-        assert!(replacing_elements.len() >= MIN_REPLACEMENT_LEN);
+        neighbors.clear();
 
-        let node_index: InverseReplacementTrieNodeIndex = replacing_elements
-            .iter()
-            .copied()
-            .fold(
-                (
-                    InverseReplacementTrieNodeIndex::invalid(),
-                    InverseReplacementTrieNodeIndex::invalid(),
-                ),
-                |(parent_node_index, child_node_index), replacing_element| {
-                    let node_index: InverseReplacementTrieNodeIndex =
-                        self.insert_replacing_element(replacing_element, child_node_index);
+        let mut mutable_state: RefMut<FastestEReductionSearchMutableState> =
+            self.mutable_state.borrow_mut();
+        let FastestEReductionSearchMutableState {
+            ref mut element_list,
+            ref mut pending_element_list,
+            ref mut vertex_data_map,
+        } = *mutable_state;
 
-                    if !child_node_index.is_valid() {
-                        self.0[parent_node_index.get()].child_node_index = child_node_index;
-                    }
+        let vertex_data: FastestEReductionSearchVertexData = vertex_data_map[vertex].clone();
+        let vertex_element_list: &[ElementIndex] =
+            &element_list[Solution::range_usize_from_range_index(&vertex_data.element_list_range)];
 
-                    (node_index, self.0[node_index.get()].child_node_index)
-                },
-            )
-            .0;
+        dbg!(vertex_element_list.len());
 
-        let node_data: &mut InverseReplacementTrieNodeData = &mut self.0[node_index.get()];
+        // For future `FastestEReductionSearchVertexData` construction.
+        let replacement_count: ReplacementCount = vertex_data.replacement_count + 1;
+        let prev_vertex: FastestEReductionSearchVertex = *vertex;
 
-        assert!(!node_data.replacement_index.is_valid());
+        for start_element_list_index in 0_usize..vertex_element_list.len() {
+            // For future `FastestEReductionSearchVertexData` construction.
+            let replacement_location: ElementListIndex = start_element_list_index.into();
 
-        node_data.replacement_index = replacement_index;
+            // For `from_fn`
+            let mut element_index_iter = vertex_element_list[start_element_list_index..].iter();
+            let mut inverse_replacement_map_node_index: InverseReplacementMapNodeIndex =
+                InverseReplacementMapNodeIndex::invalid();
+            let mut failed_to_find_child_node: bool = false;
+
+            for replacement_index in from_fn(|| {
+                (!failed_to_find_child_node)
+                    .then_some(element_index_iter.next())
+                    .flatten()
+                    .and_then(|element_index| {
+                        if let Some(next_inverse_replacement_map_node_index) =
+                            self.inverse_replacement_map.find_child_node_index_sorted(
+                                element_index,
+                                inverse_replacement_map_node_index,
+                            )
+                        {
+                            inverse_replacement_map_node_index =
+                                next_inverse_replacement_map_node_index;
+
+                            Some(next_inverse_replacement_map_node_index)
+                        } else {
+                            failed_to_find_child_node = true;
+
+                            None
+                        }
+                    })
+            })
+            .filter_map(|inverse_replacement_map_node_index| {
+                self.inverse_replacement_map
+                    .try_get_node(inverse_replacement_map_node_index)
+                    .unwrap()
+                    .kvp
+                    .value
+                    .copied()
+            }) {
+                let (
+                    pre_replacement_element_list,
+                    replaced_element_index,
+                    post_replacement_element_list,
+                ): (&[ElementIndex], ElementIndex, &[ElementIndex]) =
+                    FastestEReductionSearchMutableState::inverse_replacement_element_list(
+                        &vertex_element_list,
+                        &self.solution,
+                        replacement_index,
+                        start_element_list_index.into(),
+                    );
+                let neighbor: FastestEReductionSearchVertex =
+                    FastestEReductionSearchVertex::from_iter(
+                        Solution::element_index_iter_from_pre_replaced_and_post(
+                            pre_replacement_element_list,
+                            replaced_element_index,
+                            post_replacement_element_list,
+                        ),
+                    );
+
+                if vertex_data_map
+                    .get(&neighbor)
+                    .map_or(true, |neighbor_data| {
+                        neighbor_data.replacement_count > replacement_count
+                    })
+                {
+                    let start_pending_element_list_len: usize = pending_element_list.len();
+                    let neighbor_start_element_list_index: ElementListIndex =
+                        (start_pending_element_list_len + element_list.len()).into();
+
+                    pending_element_list.extend_from_slice(pre_replacement_element_list);
+                    pending_element_list.push(replaced_element_index);
+                    pending_element_list.extend_from_slice(post_replacement_element_list);
+
+                    let end_pending_element_list_len: usize = pending_element_list.len();
+                    let neighbor_end_element_list_index: ElementListIndex =
+                        (neighbor_start_element_list_index.get()
+                            + (end_pending_element_list_len - start_pending_element_list_len))
+                            .into();
+
+                    vertex_data_map.insert(
+                        neighbor,
+                        FastestEReductionSearchVertexData {
+                            element_list_range: neighbor_start_element_list_index
+                                ..neighbor_end_element_list_index,
+                            replacement_location,
+                            replacement_count,
+                            replacement_index,
+                            prev_vertex,
+                        },
+                    );
+
+                    neighbors.push(OpenSetElement(neighbor, 1 as ReplacementCount));
+                }
+            }
+        }
+
+        element_list.extend(pending_element_list.drain(..));
+    }
+
+    fn update_vertex(
+        &mut self,
+        _from: &Self::Vertex,
+        to: &Self::Vertex,
+        _cost: Self::Cost,
+        _heuristic: Self::Cost,
+    ) {
+        if self.is_end(to) {
+            self.end_vertex = *to;
+        }
+    }
+
+    fn reset(&mut self) {
+        let mut mutable_state: RefMut<FastestEReductionSearchMutableState> =
+            self.mutable_state.borrow_mut();
+        let FastestEReductionSearchMutableState {
+            ref mut element_list,
+            ref mut pending_element_list,
+            ref mut vertex_data_map,
+        } = *mutable_state;
+
+        element_list.clear();
+        pending_element_list.clear();
+        vertex_data_map.clear();
+        self.e = self
+            .solution
+            .element_table
+            .find_index_binary_search(&"e".try_into().unwrap());
+        element_list.extend_from_slice(
+            &self.solution.element_list
+                [Solution::range_usize_from_range_index(&self.solution.molecule)],
+        );
+        self.start_vertex = element_list[..].into();
+        self.end_vertex = FastestEReductionSearchVertex::invalid();
+        vertex_data_map.insert(
+            self.start_vertex,
+            FastestEReductionSearchVertexData {
+                element_list_range: 0_usize.into()..element_list.len().into(),
+                replacement_location: ElementListIndex::invalid(),
+                replacement_count: 0,
+                replacement_index: ReplacementIndex::invalid(),
+                prev_vertex: FastestEReductionSearchVertex::invalid(),
+            },
+        );
+
+        for (replacement_index, replacement_data) in self.solution.replacements.iter().enumerate() {
+            let replacing_elements: Range<usize> =
+                Solution::range_usize_from_range_index(&replacement_data.replacing_elements);
+            let replacement_element_list_len_delta: ElementListIndex =
+                (replacing_elements.len() - 1_usize).into();
+
+            if self
+                .max_replacement_element_list_len_delta
+                .opt()
+                .filter(|max_replacement_element_list_len_delta| {
+                    max_replacement_element_list_len_delta.get()
+                        > replacement_element_list_len_delta.get()
+                })
+                .is_none()
+            {
+                self.max_replacement_element_list_len_delta = replacement_element_list_len_delta;
+            }
+
+            self.inverse_replacement_map.insert_sorted(
+                self.solution.element_list[replacing_elements]
+                    .iter()
+                    .copied(),
+                replacement_index.into(),
+            );
+        }
     }
 }
 
@@ -223,6 +513,18 @@ pub struct Solution {
 impl Solution {
     fn range_usize_from_range_index<I: IndexRawTrait>(range: &Range<Index<I>>) -> Range<usize> {
         range.start.get()..range.end.get()
+    }
+
+    fn element_index_iter_from_pre_replaced_and_post<'e>(
+        pre_replacement_element_list: &'e [ElementIndex],
+        replaced_element_index: ElementIndex,
+        post_replacement_element_list: &'e [ElementIndex],
+    ) -> impl Clone + Iterator<Item = ElementIndex> + 'e {
+        pre_replacement_element_list
+            .iter()
+            .copied()
+            .chain([replaced_element_index])
+            .chain(post_replacement_element_list.iter().copied())
     }
 
     fn parse_element_id<'i>(input: &'i str) -> IResult<&'i str, ElementId> {
@@ -490,11 +792,114 @@ impl Solution {
         self.replacement_molecule_hashes().len()
     }
 
-    // fn inverse_replacement_trie(&self) -> InverseReplacmentTrie {
-    //     let mut inverse_replacement_trie: InverseReplacmentTrie = InverseReplacmentTrie::new();
+    fn fastest_e_reduction_searcher(&self) -> FastestEReductionSearcher {
+        FastestEReductionSearcher {
+            solution: self,
+            e: Default::default(),
+            start_vertex: Default::default(),
+            end_vertex: Default::default(),
+            inverse_replacement_map: Default::default(),
+            max_replacement_element_list_len_delta: Default::default(),
+            mutable_state: Default::default(),
+        }
+    }
 
-    //     inverse_replacement_trie
-    // }
+    fn try_fastest_e_reduction(&self) -> Option<FastestEReductionSearcher> {
+        let mut fastest_e_reduction_searcher: FastestEReductionSearcher =
+            self.fastest_e_reduction_searcher();
+
+        fastest_e_reduction_searcher.reset();
+
+        (fastest_e_reduction_searcher.e.is_valid()
+            && fastest_e_reduction_searcher
+                .max_replacement_element_list_len_delta
+                .opt()
+                .filter(|max_replacement_element_list_len_delta| {
+                    max_replacement_element_list_len_delta.get() > 0_usize
+                })
+                .is_some())
+        .then(|| fastest_e_reduction_searcher.run_a_star())
+        .flatten()
+        .map(|_| fastest_e_reduction_searcher)
+    }
+
+    fn try_fastest_e_reduction_replacement_count(&self) -> Option<ReplacementCount> {
+        self.try_fastest_e_reduction().map(|fastest_e_reduction| {
+            fastest_e_reduction.mutable_state.borrow().vertex_data_map
+                [&fastest_e_reduction.end_vertex]
+                .replacement_count
+        })
+    }
+
+    fn print_elements(
+        &self,
+        element_list: &[ElementIndex],
+        string: &mut String,
+    ) -> Result<(), FmtError> {
+        write!(
+            string,
+            "{}",
+            ElementIndexIter::new(&self.element_table, element_list.iter().copied())
+        )
+    }
+
+    fn replacements_from_fastest_e_reduction(
+        &self,
+        fastest_e_reduction: &FastestEReductionSearcher,
+    ) -> Result<Vec<String>, FmtError> {
+        let mut vertex: FastestEReductionSearchVertex = fastest_e_reduction.end_vertex;
+
+        from_fn(|| {
+            (vertex != fastest_e_reduction.start_vertex).then(|| {
+                let next_vertex: FastestEReductionSearchVertex = vertex;
+
+                vertex =
+                    fastest_e_reduction.mutable_state.borrow().vertex_data_map[&vertex].prev_vertex;
+
+                next_vertex
+            })
+        })
+        .try_fold(Vec::new(), |mut replacements, vertex| {
+            let mutable_state: Ref<FastestEReductionSearchMutableState> =
+                fastest_e_reduction.mutable_state.borrow();
+            let vertex_data: &FastestEReductionSearchVertexData =
+                &mutable_state.vertex_data_map[&vertex];
+            let replacement_location: usize = vertex_data.replacement_location.get();
+            let element_list: &[ElementIndex] = &mutable_state.element_list
+                [Self::range_usize_from_range_index(&vertex_data.element_list_range)];
+            let pre_replacement_element_list: &[ElementIndex] =
+                &element_list[..replacement_location];
+            let replaced_element_index: ElementIndex = element_list[replacement_location];
+            let replacing_element_list: &[ElementIndex] = &self.element_list
+                [Self::range_usize_from_range_index(
+                    &self.replacements[vertex_data.replacement_index.get()].replacing_elements,
+                )];
+            let post_replacement_element_list: &[ElementIndex] =
+                &element_list[replacement_location + 1_usize..];
+
+            let mut replacement_string: String = String::new();
+
+            if !pre_replacement_element_list.is_empty() {
+                self.print_elements(pre_replacement_element_list, &mut replacement_string)?;
+                write!(&mut replacement_string, ", ")?;
+            }
+
+            write!(&mut replacement_string, "(")?;
+            self.print_elements(&[replaced_element_index], &mut replacement_string)?;
+            write!(&mut replacement_string, " => ")?;
+            self.print_elements(replacing_element_list, &mut replacement_string)?;
+            write!(&mut replacement_string, ")")?;
+
+            if !post_replacement_element_list.is_empty() {
+                write!(&mut replacement_string, ", ")?;
+                self.print_elements(post_replacement_element_list, &mut replacement_string)?;
+            }
+
+            replacements.push(replacement_string);
+
+            Ok(replacements)
+        })
+    }
 }
 
 impl Parse for Solution {
@@ -506,25 +911,22 @@ impl Parse for Solution {
         let output: &str = Self::parse_internal(&mut solution)(input)?.0;
 
         verify(success(()), |_| {
-            Self::range_usize_from_range_index(&solution.molecule).len() <= MAX_MOLECULE_LEN
-                && solution
-                    .replacements
-                    .iter()
-                    .try_fold(
-                        HashSet::<&[ElementIndex]>::new(),
-                        |mut present_replacements, replacement_data| {
-                            let replacing_elements: Range<usize> =
-                                Self::range_usize_from_range_index(
+            solution
+                .replacements
+                .iter()
+                .try_fold(
+                    HashSet::<&[ElementIndex]>::new(),
+                    |mut present_replacements, replacement_data| {
+                        present_replacements
+                            .insert(
+                                &solution.element_list[Self::range_usize_from_range_index(
                                     &replacement_data.replacing_elements,
-                                );
-
-                            (replacing_elements.len() >= MIN_REPLACEMENT_LEN
-                                && present_replacements
-                                    .insert(&solution.element_list[replacing_elements]))
+                                )],
+                            )
                             .then_some(present_replacements)
-                        },
-                    )
-                    .is_some()
+                    },
+                )
+                .is_some()
         })(input)?;
 
         Ok((output, solution))
@@ -538,17 +940,24 @@ impl RunQuestions for Solution {
     }
 
     fn q2_internal(&mut self, args: &QuestionArgs) {
-        let molecule: Range<usize> = self.molecule.start.get()..self.molecule.end.get();
-
-        dbg!(self.molecule.start.get());
-        dbg!(molecule.len());
-
-        todo!();
+        if !args.verbose {
+            dbg!(self.try_fastest_e_reduction_replacement_count());
+        } else if let Some(fastest_e_reduction) = self.try_fastest_e_reduction() {
+            match self.replacements_from_fastest_e_reduction(&fastest_e_reduction) {
+                Ok(replacements) => {
+                    dbg!(replacements.len());
+                    dbg!(replacements);
+                }
+                Result::Err(err) => eprintln!("{err}"),
+            }
+        } else {
+            eprintln!("Failed to find fastest e reduction");
+        }
     }
 }
 
 impl<'i> TryFrom<&'i str> for Solution {
-    type Error = Err<Error<&'i str>>;
+    type Error = Err<NomError<&'i str>>;
 
     fn try_from(input: &'i str) -> Result<Self, Self::Error> {
         Ok(Self::parse(input)?.1)
@@ -559,61 +968,133 @@ impl<'i> TryFrom<&'i str> for Solution {
 mod tests {
     use {super::*, std::sync::OnceLock};
 
-    const SOLUTION_STRS: &'static [&'static str] = &["\
+    const SOLUTION_STRS: &'static [&'static str] = &[
+        "\
         H => HO\n\
         H => OH\n\
         O => HH\n\
         \n\
-        HOH\n"];
+        HOH\n",
+        "\
+        e => H\n\
+        e => O\n\
+        H => HO\n\
+        H => OH\n\
+        O => HH\n\
+        \n\
+        HOH\n",
+    ];
 
     fn solution(index: usize) -> &'static Solution {
         static ONCE_LOCK: OnceLock<Vec<Solution>> = OnceLock::new();
 
         &ONCE_LOCK.get_or_init(|| {
-            vec![Solution {
-                element_table: vec![
-                    Element {
-                        id: "H".try_into().unwrap(),
-                        data: ElementData {
-                            replacements: ReplacementIndex::from(0_usize)..2_usize.into(),
+            vec![
+                Solution {
+                    element_table: vec![
+                        Element {
+                            id: "H".try_into().unwrap(),
+                            data: ElementData {
+                                replacements: ReplacementIndex::from(0_usize)..2_usize.into(),
+                            },
                         },
-                    },
-                    Element {
-                        id: "O".try_into().unwrap(),
-                        data: ElementData {
-                            replacements: ReplacementIndex::from(2_usize)..3_usize.into(),
+                        Element {
+                            id: "O".try_into().unwrap(),
+                            data: ElementData {
+                                replacements: ReplacementIndex::from(2_usize)..3_usize.into(),
+                            },
                         },
-                    },
-                ]
-                .try_into()
-                .unwrap(),
-                element_list: vec![
-                    ElementIndex::from(0_usize),
-                    1_usize.into(),
-                    1_usize.into(),
-                    0_usize.into(),
-                    0_usize.into(),
-                    0_usize.into(),
-                    0_usize.into(),
-                    1_usize.into(),
-                    0_usize.into(),
-                ],
-                replacements: vec![
-                    ReplacementData {
-                        replaced_element: 0_usize.into(),
-                        replacing_elements: 0_usize.into()..2_usize.into(),
-                    },
-                    ReplacementData {
-                        replaced_element: 0_usize.into(),
-                        replacing_elements: 2_usize.into()..4_usize.into(),
-                    },
-                    ReplacementData {
-                        replaced_element: 1_usize.into(),
-                        replacing_elements: 4_usize.into()..6_usize.into(),
-                    },
-                ],
-                molecule: ElementListIndex::from(6_usize)..9_usize.into(),
-            }]
+                    ]
+                    .try_into()
+                    .unwrap(),
+                    element_list: vec![
+                        ElementIndex::from(0_usize),
+                        1_usize.into(),
+                        1_usize.into(),
+                        0_usize.into(),
+                        0_usize.into(),
+                        0_usize.into(),
+                        0_usize.into(),
+                        1_usize.into(),
+                        0_usize.into(),
+                    ],
+                    replacements: vec![
+                        ReplacementData {
+                            replaced_element: 0_usize.into(),
+                            replacing_elements: 0_usize.into()..2_usize.into(),
+                        },
+                        ReplacementData {
+                            replaced_element: 0_usize.into(),
+                            replacing_elements: 2_usize.into()..4_usize.into(),
+                        },
+                        ReplacementData {
+                            replaced_element: 1_usize.into(),
+                            replacing_elements: 4_usize.into()..6_usize.into(),
+                        },
+                    ],
+                    molecule: ElementListIndex::from(6_usize)..9_usize.into(),
+                },
+                Solution {
+                    element_table: vec![
+                        Element {
+                            id: "H".try_into().unwrap(),
+                            data: ElementData {
+                                replacements: 2_usize.into()..4_usize.into(),
+                            },
+                        },
+                        Element {
+                            id: "O".try_into().unwrap(),
+                            data: ElementData {
+                                replacements: 4_usize.into()..5_usize.into(),
+                            },
+                        },
+                        Element {
+                            id: "e".try_into().unwrap(),
+                            data: ElementData {
+                                replacements: 0_usize.into()..2_usize.into(),
+                            },
+                        },
+                    ]
+                    .try_into()
+                    .unwrap(),
+                    element_list: vec![
+                        0_usize.into(),
+                        1_usize.into(),
+                        0_usize.into(),
+                        1_usize.into(),
+                        1_usize.into(),
+                        0_usize.into(),
+                        0_usize.into(),
+                        0_usize.into(),
+                        0_usize.into(),
+                        1_usize.into(),
+                        0_usize.into(),
+                    ],
+                    replacements: vec![
+                        ReplacementData {
+                            replaced_element: 2_usize.into(),
+                            replacing_elements: 0_usize.into()..1_usize.into(),
+                        },
+                        ReplacementData {
+                            replaced_element: 2_usize.into(),
+                            replacing_elements: 1_usize.into()..2_usize.into(),
+                        },
+                        ReplacementData {
+                            replaced_element: 0_usize.into(),
+                            replacing_elements: 2_usize.into()..4_usize.into(),
+                        },
+                        ReplacementData {
+                            replaced_element: 0_usize.into(),
+                            replacing_elements: 4_usize.into()..6_usize.into(),
+                        },
+                        ReplacementData {
+                            replaced_element: 1_usize.into(),
+                            replacing_elements: 6_usize.into()..8_usize.into(),
+                        },
+                    ],
+                    molecule: 8_usize.into()..11_usize.into(),
+                },
+            ]
         })[index]
     }
 
@@ -629,7 +1110,8 @@ mod tests {
 
     #[test]
     fn test_replacement_molecule_hashes() {
-        for (index, replacement_molecule_hashes_count) in [4_usize].into_iter().enumerate() {
+        for (index, replacement_molecule_hashes_count) in [4_usize, 4_usize].into_iter().enumerate()
+        {
             assert_eq!(
                 solution(index).replacement_molecule_hashes().len(),
                 replacement_molecule_hashes_count
@@ -638,9 +1120,21 @@ mod tests {
     }
 
     #[test]
-    fn test_input() {
-        let args: Args = Args::parse(module_path!()).unwrap().1;
+    fn test_try_fastest_e_reduction_replacement_count() {
+        for (index, fastest_e_reduction_replacement_count) in
+            [None, Some(3 as ReplacementCount)].into_iter().enumerate()
+        {
+            assert_eq!(
+                solution(index).try_fastest_e_reduction_replacement_count(),
+                fastest_e_reduction_replacement_count
+            );
+        }
+    }
 
-        Solution::both(&args);
+    #[test]
+    fn test_input() {
+        // let args: Args = Args::parse(module_path!()).unwrap().1;
+
+        // Solution::both(&args);
     }
 }
