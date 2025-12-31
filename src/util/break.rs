@@ -59,7 +59,17 @@ pub fn div_break_on_overflow<I: PrimInt>(a: I, b: I) -> I {
 
 pub fn assert_eq_break<T: Debug + PartialEq>(left: T, right: T) {
     if left != right {
+        debug_break();
+
         assert_eq!(left, right);
+    }
+}
+
+pub fn slice_assert_eq_break<T: Debug + PartialEq>(left: &[T], right: &[T]) {
+    assert_eq_break(left.len(), right.len());
+
+    for (_index, (left, right)) in left.iter().zip(right.iter()).enumerate() {
+        assert_eq_break(left, right);
     }
 }
 

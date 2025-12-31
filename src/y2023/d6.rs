@@ -66,7 +66,7 @@ impl Solution {
     }
 
     fn concat_digits(left: u64, right: u64) -> u64 {
-        left * 10_u64.pow(digits(right as u32) as u32) + right
+        left * 10_u64.pow(digits(right as usize) as u32) + right
     }
 
     fn big_record(&self) -> Record {

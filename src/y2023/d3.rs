@@ -52,7 +52,7 @@ impl CellGrid {
     }
 
     fn write_number(&mut self, mut number: u32, pos: IVec2) {
-        let digits_len: usize = digits(number);
+        let digits_len: usize = digits(number as usize);
 
         let mut digits: [Cell; U32_DIGITS as usize] = [Cell(b'0'); U32_DIGITS as usize];
         let mut digit_index: usize = 0_usize;
@@ -83,7 +83,10 @@ impl From<Solution> for CellGrid {
         let mut max_pos: IVec2 = IVec2::ZERO;
 
         for (number, pos) in value.iter_numbers() {
-            max_pos = max_pos.max(IVec2::new(pos.x + digits(number) as i32 - 1_i32, pos.y));
+            max_pos = max_pos.max(IVec2::new(
+                pos.x + digits(number as usize) as i32 - 1_i32,
+                pos.y,
+            ));
         }
 
         for (_, pos) in value.iter_symbols() {
@@ -150,7 +153,7 @@ impl Solution {
     }
 
     fn iter_positions_adjacent_to_number(number: u32, pos: IVec2) -> impl Iterator<Item = IVec2> {
-        let digits: i32 = digits(number) as i32;
+        let digits: i32 = digits(number as usize) as i32;
         let nw_corner: IVec2 = pos - IVec2::ONE;
         let se_corner: IVec2 = IVec2::new(pos.x + digits, pos.y + 1_i32);
         let ne_corner: IVec2 = IVec2::new(se_corner.x, nw_corner.y);

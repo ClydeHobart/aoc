@@ -918,15 +918,15 @@ pub const fn factorial(value: usize) -> usize {
     }
 }
 
-pub const fn digits(value: u32) -> usize {
-    if value == 0_u32 {
+pub const fn digits(value: usize) -> usize {
+    if value == 0_usize {
         1_usize
     } else {
         value.ilog10() as usize + 1_usize
     }
 }
 
-pub const U32_DIGITS: usize = digits(u32::MAX);
+pub const U32_DIGITS: usize = digits(u32::MAX as usize);
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct PrimeFactor {

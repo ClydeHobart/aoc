@@ -331,7 +331,7 @@ impl Parse for Solution {
 
         let key_len_plus_one: usize = key.len() + 1_usize;
         let mut knot_hash_input: String =
-            String::with_capacity(key_len_plus_one + digits(Self::ROWS as u32 - 1_u32));
+            String::with_capacity(key_len_plus_one + digits(Self::ROWS - 1_usize));
 
         map_res(success(()), |_| write!(&mut knot_hash_input, "{}-", key))(input)?;
 
