@@ -78,7 +78,7 @@ impl<'s> TryFrom<&'s str> for Instruction {
 struct Instructions(Vec<Instruction>);
 
 impl Instructions {
-    fn iter(&self) -> Iter<Instruction> {
+    fn iter<'a>(&'a self) -> Iter<'a, Instruction> {
         self.0.iter()
     }
 }

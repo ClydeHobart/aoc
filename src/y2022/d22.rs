@@ -785,7 +785,7 @@ impl PasswordTracer {
         self
     }
 
-    fn iter(&mut self, cube: bool) -> (TraceStateIter, &mut Vec<TraceState>) {
+    fn iter<'a>(&'a mut self, cube: bool) -> (TraceStateIter<'a>, &'a mut Vec<TraceState>) {
         let Self {
             map,
             neighbors_grid,

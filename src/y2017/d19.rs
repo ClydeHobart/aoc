@@ -168,7 +168,7 @@ pub struct Solution {
 }
 
 impl Solution {
-    fn packet_pos_iter(&self) -> PacketPosIter {
+    fn packet_pos_iter<'g>(&'g self) -> PacketPosIter<'g> {
         PacketPosIter {
             grid: &self.grid,
             pos: self.start,

@@ -341,7 +341,7 @@ impl SensorReadings {
         self.pois.sort_unstable();
     }
 
-    fn position_iter(&self) -> PositionIter {
+    fn position_iter<'p>(&'p self) -> PositionIter<'p> {
         let mut poi_iter: Peekable<PoiIter> = PoiIter {
             pois: &self.pois,
             index: 0_usize,

@@ -138,7 +138,9 @@ struct LavaDropletScan {
 }
 
 impl LavaDropletScan {
-    fn parse_cube_cooridnates(lava_droplet_cube_str: &str) -> Result<IVec3, ParseIVec3Error> {
+    fn parse_cube_cooridnates<'s>(
+        lava_droplet_cube_str: &'s str,
+    ) -> Result<IVec3, ParseIVec3Error<'s>> {
         use ParseIVec3Error::*;
 
         let mut component_iter: Split<char> = lava_droplet_cube_str.split(',');

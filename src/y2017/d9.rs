@@ -294,7 +294,7 @@ pub struct Solution {
 }
 
 impl Solution {
-    fn get_nodes(&self) -> Vec<GroupNodeData> {
+    fn get_nodes<'g>(&'g self) -> Vec<GroupNodeData<'g>> {
         let mut nodes: Vec<GroupNodeData> = Vec::new();
 
         self.group
@@ -303,7 +303,7 @@ impl Solution {
         nodes
     }
 
-    fn iter_groups(&self) -> impl Iterator<Item = GroupNodeData> {
+    fn iter_groups<'g>(&'g self) -> impl Iterator<Item = GroupNodeData<'g>> {
         self.get_nodes()
             .into_iter()
             .filter(|node| node.group.is_some())
@@ -318,7 +318,7 @@ impl Solution {
         self.iter_groups().map(|node| node.depth + 1_usize).sum()
     }
 
-    fn iter_garbage(&self) -> impl Iterator<Item = GroupNodeData> {
+    fn iter_garbage<'g>(&'g self) -> impl Iterator<Item = GroupNodeData<'g>> {
         self.get_nodes()
             .into_iter()
             .filter(|node| node.garbage.is_some())

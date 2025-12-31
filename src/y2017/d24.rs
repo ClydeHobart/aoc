@@ -322,7 +322,7 @@ impl Solution {
         f(bridge_state_path.last().unwrap())
     }
 
-    fn run_optimal_bridge_finder(&self) -> OptimalBridgeFinder {
+    fn run_optimal_bridge_finder<'s>(&'s self) -> OptimalBridgeFinder<'s> {
         let mut optimal_bridge_finder: OptimalBridgeFinder = OptimalBridgeFinder {
             solution: self,
             child_to_parent_end_component: HashMap::new(),

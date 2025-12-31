@@ -792,7 +792,7 @@ impl Solution {
         self.replacement_molecule_hashes().len()
     }
 
-    fn fastest_e_reduction_searcher(&self) -> FastestEReductionSearcher {
+    fn fastest_e_reduction_searcher<'s>(&'s self) -> FastestEReductionSearcher<'s> {
         FastestEReductionSearcher {
             solution: self,
             e: Default::default(),
@@ -804,7 +804,7 @@ impl Solution {
         }
     }
 
-    fn try_fastest_e_reduction(&self) -> Option<FastestEReductionSearcher> {
+    fn try_fastest_e_reduction<'s>(&'s self) -> Option<FastestEReductionSearcher<'s>> {
         let mut fastest_e_reduction_searcher: FastestEReductionSearcher =
             self.fastest_e_reduction_searcher();
 

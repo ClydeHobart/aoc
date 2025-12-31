@@ -2,15 +2,7 @@ use {
     crate::*,
     bitvec::prelude::*,
     glam::IVec2,
-    nom::{
-        bytes::complete::tag,
-        character::complete::line_ending,
-        combinator::{map, map_opt, map_res, opt},
-        error::Error,
-        multi::many0,
-        sequence::{preceded, terminated, tuple},
-        Err, IResult,
-    },
+    nom::{combinator::map, error::Error, Err, IResult},
 };
 
 /* --- Day 4: Printing Department ---

@@ -429,7 +429,7 @@ impl Solution {
     const START_DIR: Direction = Direction::East;
     const TURN_COST: u32 = 1000_u32;
 
-    fn run_reindeer_path_finder(&self) -> ReindeerPathFinder {
+    fn run_reindeer_path_finder<'s>(&'s self) -> ReindeerPathFinder<'s> {
         let mut reindeer_path_finder: ReindeerPathFinder = ReindeerPathFinder::new(self);
 
         reindeer_path_finder.run_dijkstra();

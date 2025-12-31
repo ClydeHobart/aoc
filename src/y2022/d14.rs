@@ -192,7 +192,10 @@ enum AddSandError {
 
 impl ScanGrid {
     #[cfg(test)]
-    fn try_from_str(scan_str: &str, with_floor: bool) -> Result<Self, ScanGridParseError> {
+    fn try_from_str<'s>(
+        scan_str: &'s str,
+        with_floor: bool,
+    ) -> Result<Self, ScanGridParseError<'s>> {
         use ScanGridParseError::*;
 
         let mut scan: Scan = Scan::try_from(scan_str).map_err(FailedToParseScan)?;

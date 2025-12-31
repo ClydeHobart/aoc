@@ -404,7 +404,7 @@ impl Solution {
         areas.into_iter().filter(|area| *area < INFINITE_AREA).max()
     }
 
-    fn least_dangerous_coordinate_finder(&self) -> LeastDangerousCoordinateFinder {
+    fn least_dangerous_coordinate_finder<'s>(&'s self) -> LeastDangerousCoordinateFinder<'s> {
         let solution: &Solution = self;
         let grid: Grid2D<CoordinateIndexPixel> = Grid2D::default(solution.n * IVec2::ONE);
 

@@ -131,7 +131,7 @@ impl Solution {
         self.data.borrow_mut().new_beams.pop_front()
     }
 
-    fn disperse_beam(&self, initial_beam: Beam) -> Ref<HashSet<Beam>> {
+    fn disperse_beam<'b>(&'b self, initial_beam: Beam) -> Ref<'b, HashSet<Beam>> {
         self.initialize(initial_beam);
 
         while let Some(beam) = self.pop_beam() {
@@ -151,7 +151,7 @@ impl Solution {
         Ref::map(self.data.borrow(), |data| &data.beams)
     }
 
-    fn energized_grid(&self, initial_beam: Beam) -> Ref<EnergizedGrid> {
+    fn energized_grid<'b>(&'b self, initial_beam: Beam) -> Ref<'b, EnergizedGrid> {
         self.disperse_beam(initial_beam);
 
         {

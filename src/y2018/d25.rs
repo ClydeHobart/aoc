@@ -200,7 +200,7 @@ impl Solution {
         &neighbors[neighbors_start..neighbors_end]
     }
 
-    fn constellation_finder(&self) -> ConstellationFinder {
+    fn constellation_finder<'s>(&'s self) -> ConstellationFinder<'s> {
         ConstellationFinder {
             solution: self,
             neighbors: self.neighbors(),

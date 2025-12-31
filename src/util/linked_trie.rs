@@ -173,11 +173,11 @@ impl<Key: LinkedTrieNodeKey, Value, Index: IndexTrait> LinkedTrie<Key, Value, In
             .map_or(false, |node_state| node_state.key_value_state.has_value())
     }
 
-    pub fn get_key_value_pair(
-        &self,
+    pub fn get_key_value_pair<'l>(
+        &'l self,
         node_index: Index,
         node_state: &LinkedTrieNodeState<Index>,
-    ) -> LinkedTrieKeyValuePair<Key, Value> {
+    ) -> LinkedTrieKeyValuePair<'l, Key, Value> {
         let node_index: usize = node_index.get();
 
         LinkedTrieKeyValuePair {
@@ -209,7 +209,10 @@ impl<Key: LinkedTrieNodeKey, Value, Index: IndexTrait> LinkedTrie<Key, Value, In
     /// # Assertions
     ///
     /// * This asserts if `node_index` is valid but not occupied.
-    pub fn try_get_node(&self, node_index: Index) -> Option<LinkedTrieNode<Key, Value, Index>> {
+    pub fn try_get_node<'l>(
+        &'l self,
+        node_index: Index,
+    ) -> Option<LinkedTrieNode<'l, Key, Value, Index>> {
         self.try_get_node_state(node_index)
             .map(|node_state| LinkedTrieNode {
                 kvp: self.get_key_value_pair(node_index, node_state),
@@ -1123,7 +1126,9 @@ mod tests {
         })
     }
 
-    fn visit_states(linked_trie: &LinkedTrie<char, i32>) -> Vec<LinkedTrieVisitState<char, i32>> {
+    fn visit_states<'l>(
+        linked_trie: &'l LinkedTrie<char, i32>,
+    ) -> Vec<LinkedTrieVisitState<'l, char, i32>> {
         let mut visit_states: Vec<LinkedTrieVisitState<char, i32>> = Vec::new();
 
         linked_trie.visit(0_usize, linked_trie.root_node_index(), &mut |visit_state| {

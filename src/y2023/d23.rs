@@ -441,7 +441,7 @@ impl Solution {
         }
     }
 
-    fn old_longest_hike_finder(&self) -> OldLongestHikeFinder {
+    fn old_longest_hike_finder<'s>(&'s self) -> OldLongestHikeFinder<'s> {
         OldLongestHikeFinder {
             solution: self,
             grid: Grid2D::try_from_cells_and_dimensions(

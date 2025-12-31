@@ -182,7 +182,7 @@ impl DiskMap {
 
     fn update_file_block_tail_file_index(&mut self) {
         let mut file_block_tail_file_index: FileIndex = self.file_block_tail_file_index;
-        let mut file_block_next_file_index: FileIndex = FileIndex::invalid();
+        let mut file_block_next_file_index: FileIndex;
 
         while file_block_tail_file_index.is_valid() && {
             let file: File = self.files[file_block_tail_file_index.get()];
@@ -199,7 +199,7 @@ impl DiskMap {
 
     fn update_free_block_head_file_index(&mut self) {
         let mut free_block_head_file_index: FileIndex = self.free_block_head_file_index;
-        let mut free_block_next_file_index: FileIndex = FileIndex::invalid();
+        let mut free_block_next_file_index: FileIndex;
 
         while free_block_head_file_index.is_valid() && {
             let file: File = self.files[free_block_head_file_index.get()];
@@ -287,7 +287,7 @@ impl DiskMap {
             // src_file_block_len_to_dst_file_index[src_file_block_len as usize];
 
             if dst_file_index.is_valid() {
-                let mut next_dst_file_index: FileIndex = FileIndex::invalid();
+                let mut next_dst_file_index: FileIndex;
 
                 while dst_file_index.get() != src_file_index && {
                     let dst_file: File = self.files[dst_file_index.get()];

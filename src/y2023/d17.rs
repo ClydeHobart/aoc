@@ -214,7 +214,7 @@ impl Solution {
     const STANDARD_CRUCIBLE_STRAIGHT_LINE_LEN_RANGE: Range<i32> = 0_i32..3_i32;
     const ULTRA_CRUCIBLE_STRAIGHT_LINE_LEN_RANGE: Range<i32> = 4_i32..10_i32;
 
-    fn regular_crucible_path_finder(&self) -> MinimalHeatLossPathFinder {
+    fn regular_crucible_path_finder<'s>(&'s self) -> MinimalHeatLossPathFinder<'s> {
         MinimalHeatLossPathFinder {
             solution: self,
             vertex_to_vertex_data: HashMap::new(),
@@ -227,7 +227,7 @@ impl Solution {
         }
     }
 
-    fn ultra_crucible_path_finder(&self) -> MinimalHeatLossPathFinder {
+    fn ultra_crucible_path_finder<'s>(&'s self) -> MinimalHeatLossPathFinder<'s> {
         MinimalHeatLossPathFinder {
             straight_line_len_range: Self::ULTRA_CRUCIBLE_STRAIGHT_LINE_LEN_RANGE,
             ..self.regular_crucible_path_finder()

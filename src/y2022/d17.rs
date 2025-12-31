@@ -130,7 +130,7 @@ impl TryFrom<char> for JetPushDirection {
 struct JetPattern(Vec<JetPushDirection>);
 
 impl JetPattern {
-    fn iter(&self) -> JetPatternIterator {
+    fn iter<'j>(&'j self) -> JetPatternIterator<'j> {
         JetPatternIterator {
             jet_pattern: self,
             index: 0_usize,

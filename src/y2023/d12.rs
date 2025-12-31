@@ -284,7 +284,7 @@ pub struct Solution {
 impl Solution {
     const UNFOLD_REPETITIONS: usize = 5_usize;
 
-    fn iter_rows(&self) -> impl Iterator<Item = Row> + '_ {
+    fn iter_rows<'r>(&'r self) -> impl Iterator<Item = Row<'r>> {
         self.row_ranges.iter().map(|row_ranges| {
             Row::new(
                 SliceWithHash::new(

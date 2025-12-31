@@ -381,7 +381,7 @@ impl Solution {
             .count()
     }
 
-    fn nano_bot_data(&self) -> NanoBotData {
+    fn nano_bot_data<'n>(&'n self) -> NanoBotData<'n> {
         NanoBotData::new(&self.0)
     }
 

@@ -397,11 +397,11 @@ impl<'u> Display for Polymer<'u> {
 pub struct Solution(String);
 
 impl Solution {
-    fn polymer(&self) -> Polymer {
+    fn polymer<'u>(&'u self) -> Polymer<'u> {
         Polymer::parse(None)(&self.0).unwrap().1
     }
 
-    fn unreactive_polymer(&self) -> Polymer {
+    fn unreactive_polymer<'u>(&'u self) -> Polymer<'u> {
         let mut polymer: Polymer = self.polymer();
 
         polymer.react();
@@ -413,11 +413,11 @@ impl Solution {
         self.unreactive_polymer().units_len()
     }
 
-    fn removed_unit_polymer(&self, unit_to_remove: u8) -> Polymer {
+    fn removed_unit_polymer<'u>(&'u self, unit_to_remove: u8) -> Polymer<'u> {
         Polymer::parse(Some(unit_to_remove))(&self.0).unwrap().1
     }
 
-    fn removed_unit_type_and_shortest_polymer(&self) -> (char, Polymer) {
+    fn removed_unit_type_and_shortest_polymer<'u>(&'u self) -> (char, Polymer<'u>) {
         (b'a'..=b'z')
             .into_par_iter()
             .map(|unit| {

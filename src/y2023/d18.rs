@@ -226,7 +226,7 @@ impl Solution {
         })
     }
 
-    fn digger(&self) -> Digger {
+    fn digger<'s>(&'s self) -> Digger<'s> {
         let mut min: IVec2 = IVec2::ZERO;
         let mut max: IVec2 = IVec2::ZERO;
 
