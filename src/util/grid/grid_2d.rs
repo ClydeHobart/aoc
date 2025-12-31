@@ -916,6 +916,32 @@ impl TryFrom<RangeInclusive<IVec2>> for CellIter2D {
     }
 }
 
+pub fn iter_orthagonal_neighbors(pos: IVec2) -> impl Iterator<Item = IVec2> {
+    Direction::iter().map(move |dir| dir.vec() + pos)
+}
+
+pub fn iter_diagonal_neighbors(pos: IVec2) -> impl Iterator<Item = IVec2> {
+    Direction::iter().map(move |dir| dir.vec() + dir.next().vec() + pos)
+}
+
+pub fn iter_neighbors(pos: IVec2) -> impl Iterator<Item = IVec2> {
+    let mut orthogonal_neighbor_iter = iter_orthagonal_neighbors(pos);
+    let mut diagonal_neighbor_iter = iter_diagonal_neighbors(pos);
+    let mut take_orthogonal: bool = true;
+
+    from_fn(move || {
+        let next: IVec2 = if take_orthogonal {
+            orthogonal_neighbor_iter.next()
+        } else {
+            diagonal_neighbor_iter.next()
+        }?;
+
+        take_orthogonal = !take_orthogonal;
+
+        Some(next)
+    })
+}
+
 /// A marker trait to indicate that a type is a single byte, and any possible value is a valid ASCII
 /// byte.
 ///
@@ -1144,5 +1170,99 @@ mod tests {
                 24, 23, 22, 21, 20 // West
             ]
         );
+    }
+
+    mod iter_neighbors_tests {
+        use super::*;
+
+        #[test]
+        fn test_iter_orthogonal_neighbors() {
+            slice_assert_eq_break(
+                &iter_orthagonal_neighbors(IVec2::ZERO).collect::<Vec<_>>(),
+                &[IVec2::NEG_Y, IVec2::X, IVec2::Y, IVec2::NEG_X],
+            );
+            slice_assert_eq_break(
+                &iter_orthagonal_neighbors((3, 5).into()).collect::<Vec<_>>(),
+                &[(3, 4).into(), (4, 5).into(), (3, 6).into(), (2, 5).into()],
+            );
+            slice_assert_eq_break(
+                &iter_orthagonal_neighbors((-5, 3).into()).collect::<Vec<_>>(),
+                &[
+                    (-5, 2).into(),
+                    (-4, 3).into(),
+                    (-5, 4).into(),
+                    (-6, 3).into(),
+                ],
+            );
+        }
+
+        #[test]
+        fn test_iter_diagonal_neighbors() {
+            slice_assert_eq_break(
+                &iter_diagonal_neighbors(IVec2::ZERO).collect::<Vec<_>>(),
+                &[
+                    (1, -1).into(),
+                    (1, 1).into(),
+                    (-1, 1).into(),
+                    (-1, -1).into(),
+                ],
+            );
+            slice_assert_eq_break(
+                &iter_diagonal_neighbors((3, 5).into()).collect::<Vec<_>>(),
+                &[(4, 4).into(), (4, 6).into(), (2, 6).into(), (2, 4).into()],
+            );
+            slice_assert_eq_break(
+                &iter_diagonal_neighbors((-5, 3).into()).collect::<Vec<_>>(),
+                &[
+                    (-4, 2).into(),
+                    (-4, 4).into(),
+                    (-6, 4).into(),
+                    (-6, 2).into(),
+                ],
+            );
+        }
+
+        #[test]
+        fn test_iter_neighbors() {
+            slice_assert_eq_break(
+                &iter_neighbors(IVec2::ZERO).collect::<Vec<_>>(),
+                &[
+                    (0, -1).into(),
+                    (1, -1).into(),
+                    (1, 0).into(),
+                    (1, 1).into(),
+                    (0, 1).into(),
+                    (-1, 1).into(),
+                    (-1, 0).into(),
+                    (-1, -1).into(),
+                ],
+            );
+            slice_assert_eq_break(
+                &iter_neighbors((3, 5).into()).collect::<Vec<_>>(),
+                &[
+                    (3, 4).into(),
+                    (4, 4).into(),
+                    (4, 5).into(),
+                    (4, 6).into(),
+                    (3, 6).into(),
+                    (2, 6).into(),
+                    (2, 5).into(),
+                    (2, 4).into(),
+                ],
+            );
+            slice_assert_eq_break(
+                &iter_neighbors((-5, 3).into()).collect::<Vec<_>>(),
+                &[
+                    (-5, 2).into(),
+                    (-4, 2).into(),
+                    (-4, 3).into(),
+                    (-4, 4).into(),
+                    (-5, 4).into(),
+                    (-6, 4).into(),
+                    (-6, 3).into(),
+                    (-6, 2).into(),
+                ],
+            );
+        }
     }
 }
