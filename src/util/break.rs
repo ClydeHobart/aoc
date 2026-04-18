@@ -94,3 +94,33 @@ impl<T> UnwrapBreak<T> for Option<T> {
         }
     }
 }
+
+pub trait BreakOnNone: Sized {
+    fn break_on_none(self) -> Self;
+}
+
+impl<T: Sized> BreakOnNone for Option<T> {
+    fn break_on_none(self) -> Self {
+        #[cfg(debug_assertions)]
+        if self.is_none() {
+            debug_break();
+        }
+
+        self
+    }
+}
+
+pub trait BreakOnErr: Sized {
+    fn break_on_none(self) -> Self;
+}
+
+impl<T: Sized, E: Sized> BreakOnErr for Result<T, E> {
+    fn break_on_none(self) -> Self {
+        #[cfg(debug_assertions)]
+        if self.is_err() {
+            debug_break();
+        }
+
+        self
+    }
+}

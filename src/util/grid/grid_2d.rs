@@ -521,6 +521,16 @@ impl<T> Grid2D<T> {
     }
 
     #[inline]
+    pub fn height(&self) -> usize {
+        self.dimensions.y as usize
+    }
+
+    #[inline]
+    pub fn width(&self) -> usize {
+        self.dimensions.x as usize
+    }
+
+    #[inline]
     pub fn contains(&self, pos: IVec2) -> bool {
         grid_2d_contains(pos, self.dimensions)
     }
